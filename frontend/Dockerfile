@@ -1,5 +1,5 @@
 # Этап сборки (Node.js)
-FROM node:18 as build
+FROM node:22 as build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
