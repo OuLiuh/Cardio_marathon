@@ -38,8 +38,10 @@ services:
     restart: always
     ports:
       - "80:80"
+      # - "443:443" <--- Закомментируй или удали пока сертификата нет
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      # - ./certs:/etc/nginx/certs:ro <--- Тоже пока не нужно
     depends_on:
       - backend
       - frontend
