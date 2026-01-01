@@ -22,6 +22,11 @@ class AttackResult(BaseModel):
     message: str # Например: "Критический удар! Броня пробита!"
 
 # Состояние рейда для отображения всем
+# Добавь маленькую модель для отображения игрока на арене
+class RaidParticipant(BaseModel):
+    username: str
+    level: int
+    avatar_color: str # Для красоты генерируем цвет
 class RaidState(BaseModel):
     boss_name: str
     max_hp: int
@@ -29,6 +34,7 @@ class RaidState(BaseModel):
     active_debuffs: dict
     active_players_count: int
     recent_logs: List["LogDisplay"]
+    participants: List[RaidParticipant]
 
 class LogDisplay(BaseModel):
     username: str

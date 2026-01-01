@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, desc
 
 # Импорты из твоих модулей
 # config импортируется внутри database.py, здесь он явно не нужен, 
@@ -198,28 +198,18 @@ async def process_attack(
 
 @app.get("/api/raid/current", response_model=RaidState)
 async def get_current_raid(db: Annotated[AsyncSession, Depends(get_db)]):
-    """
-    Получение статуса текущего рейда для отображения на главном экране.
-    Возвращает HP босса, активные дебаффы и последние удары других игроков.
-    """
-    
-    # 1. Ищем активного босса
+    # 1. Босс
     result = await db.execute(select(Raid).where(Raid.is_active == True))
     raid = result.scalars().first()
     
-    # Если активного рейда нет (всех убили), возвращаем заглушку
+    # Заглушка, если босса нет
     if not raid:
         return RaidState(
-            boss_name="Peaceful Time", 
-            max_hp=100, 
-            current_hp=0, 
-            active_debuffs={}, 
-            active_players_count=0, 
-            recent_logs=[]
+            boss_name="Waiting...", max_hp=100, current_hp=0, 
+            active_debuffs={}, active_players_count=0, recent_logs=[], participants=[]
         )
     
-    # 2. Получаем последние 5 атак (Log + Username)
-    # Используем join, чтобы достать имя пользователя
+    # 2. Логи (как было)
     logs_result = await db.execute(
         select(RaidLog, User.username)
         .join(User, RaidLog.user_id == User.id)
@@ -229,21 +219,33 @@ async def get_current_raid(db: Annotated[AsyncSession, Depends(get_db)]):
     )
     
     display_logs = []
-    
     for log, username in logs_result:
         display_logs.append(LogDisplay(
-            username=username or f"Hero #{log.user_id}", # Fallback если нет юзернейма
+            username=username or f"Hero",
             damage=log.damage,
             sport_type=log.sport_type,
             created_at=log.created_at
         ))
+
+    # 3. ПОЛУЧЕНИЕ УЧАСТНИКОВ (НОВОЕ)
+    # Берем топ-12 активных игроков (сортировка по уровню или просто всех)
+    users_result = await db.execute(select(User).limit(12))
+    users = users_result.scalars().all()
+    
+    participants = []
+    for u in users:
+        # Генерируем цвет на основе ID (чтобы у каждого был свой постоянный цвет)
+        colors = ["#e94560", "#0f3460", "#533483", "#e62e2d", "#f2a365", "#222831", "#00adb5"]
+        color = colors[u.id % len(colors)]
         
-    # 3. Считаем уникальных игроков в этом рейде
-    count_result = await db.execute(
-        select(func.count(func.distinct(RaidLog.user_id)))
-        .where(RaidLog.raid_id == raid.id)
-    )
-    total_players = count_result.scalar() or 0
+        participants.append(RaidParticipant(
+            username=u.username or "Hero",
+            level=u.level,
+            avatar_color=color
+        ))
+
+    # Кол-во игроков
+    total_players = len(users)
 
     return RaidState(
         boss_name=raid.boss_name,
@@ -251,7 +253,8 @@ async def get_current_raid(db: Annotated[AsyncSession, Depends(get_db)]):
         current_hp=raid.current_hp,
         active_debuffs=raid.active_debuffs,
         active_players_count=total_players,
-        recent_logs=display_logs
+        recent_logs=display_logs,
+        participants=participants # <--- Передаем
     )
 
 @app.get("/api/health")

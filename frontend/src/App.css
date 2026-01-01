@@ -110,3 +110,77 @@ button.attack-btn:active {
   font-size: 0.8em;
   margin-left: 5px;
 }
+
+/* АРЕНА БИТВЫ */
+.battle-arena {
+  position: relative;
+  width: 100%;
+  height: 320px; /* Высота арены */
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  /* Фоновый круг (орбита) */
+  background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 70%);
+}
+
+/* БОСС В ЦЕНТРЕ */
+.boss-center {
+  width: 100px;
+  height: 100px;
+  background-color: #222;
+  border: 3px solid #e94560;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+  box-shadow: 0 0 20px rgba(233, 69, 96, 0.4);
+  animation: breathe 3s infinite ease-in-out;
+}
+
+.boss-emoji {
+  font-size: 40px;
+}
+
+/* ИГРОК НА ОРБИТЕ */
+.player-orbit {
+  position: absolute;
+  /* width/height не задаем, это точка позиционирования */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: all 0.5s ease-out;
+}
+
+.player-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+  color: white;
+  font-size: 14px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+.player-info {
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-top: 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Анимация "Дыхания" босса */
+@keyframes breathe {
+  0% { transform: scale(1); box-shadow: 0 0 20px rgba(233, 69, 96, 0.4); }
+  50% { transform: scale(1.05); box-shadow: 0 0 35px rgba(233, 69, 96, 0.6); }
+  100% { transform: scale(1); box-shadow: 0 0 20px rgba(233, 69, 96, 0.4); }
+}
