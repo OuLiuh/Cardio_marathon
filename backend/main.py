@@ -11,7 +11,7 @@ from sqlalchemy import select, func
 # если мы не используем переменные напрямую в main.py
 from database import init_models, get_db
 from models import User, Raid, RaidLog
-from schemas import WorkoutData, AttackResult, RaidState, LogDisplay
+from schemas import WorkoutData, AttackResult, RaidState, LogDisplay, UserRead, UserCreate, UserUpdate
 from mechanics import get_strategy
 
 # --- 1. Lifespan (Запуск и инициализация БД) ---
@@ -50,6 +50,46 @@ app = FastAPI(
 )
 
 # --- 3. Роуты (API Endpoints) ---
+
+# 1. Проверка: существует ли пользователь?
+@app.get("/api/user/{user_id}", response_model=UserRead)
+async def get_user(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+# 2. Регистрация нового пользователя
+@app.post("/api/user/register", response_model=UserRead)
+async def register_user(user_data: UserCreate, db: Annotated[AsyncSession, Depends(get_db)]):
+    # Проверяем, вдруг уже есть (защита от дублей)
+    existing_user = await db.get(User, user_data.id)
+    if existing_user:
+        return existing_user # Просто возвращаем его
+        
+    new_user = User(
+        id=user_data.id, 
+        username=user_data.username,
+        level=1, 
+        xp=0, 
+        gold=0
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    return new_user
+
+# 3. Смена ника
+@app.put("/api/user/{user_id}", response_model=UserRead)
+async def update_user(user_id: int, data: UserUpdate, db: Annotated[AsyncSession, Depends(get_db)]):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.username = data.username
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 @app.post("/api/attack", response_model=AttackResult)
 async def process_attack(

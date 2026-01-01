@@ -35,3 +35,22 @@ class LogDisplay(BaseModel):
     damage: int
     sport_type: str
     created_at: datetime
+
+# Для регистрации/проверки
+class UserBase(BaseModel):
+    username: str
+
+class UserCreate(UserBase):
+    id: int # Telegram ID обязательно
+
+class UserUpdate(UserBase):
+    pass # Тут только username
+
+class UserRead(UserBase):
+    id: int
+    level: int
+    xp: int
+    gold: int
+    
+    class Config:
+        from_attributes = True

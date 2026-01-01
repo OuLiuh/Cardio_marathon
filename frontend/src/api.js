@@ -34,3 +34,38 @@ export const sendAttack = async (workoutData) => {
     throw error;
   }
 };
+
+// Проверка юзера
+export const getUser = async (userId) => {
+  try {
+    const response = await fetch(`/api/user/${userId}`);
+    if (response.status === 404) return null; // Юзера нет
+    if (!response.ok) throw new Error('Error checking user');
+    return await response.json();
+  } catch (error) {
+    console.error("Get User Error:", error);
+    return null;
+  }
+};
+
+// Регистрация
+export const registerUser = async (userId, username) => {
+  const response = await fetch('/api/user/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: userId, username: username }),
+  });
+  if (!response.ok) throw new Error('Registration failed');
+  return await response.json();
+};
+
+// Обновление ника
+export const updateUsername = async (userId, newName) => {
+  const response = await fetch(`/api/user/${userId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: newName }),
+  });
+  if (!response.ok) throw new Error('Update failed');
+  return await response.json();
+};
