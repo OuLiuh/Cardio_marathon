@@ -11,7 +11,7 @@ from sqlalchemy import select, func, desc
 # если мы не используем переменные напрямую в main.py
 from database import init_models, get_db
 from models import User, Raid, RaidLog
-from schemas import WorkoutData, AttackResult, RaidState, LogDisplay, UserRead, UserCreate, UserUpdate
+from schemas import WorkoutData, AttackResult, RaidState, LogDisplay, UserRead, UserCreate, UserUpdate, RaidParticipant
 from mechanics import get_strategy
 
 # --- 1. Lifespan (Запуск и инициализация БД) ---
