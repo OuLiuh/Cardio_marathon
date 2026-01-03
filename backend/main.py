@@ -233,14 +233,24 @@ async def get_current_raid(db: Annotated[AsyncSession, Depends(get_db)]):
     result = await db.execute(select(Raid).where(Raid.is_active == True))
     raid = result.scalars().first()
     
-    # Заглушка, если босса нет
+    # 2. ПОЛУЧЕНИЕ УЧАСТНИКОВ (Вынесем это выше, чтобы использовать даже если босса нет, или оставим пустым)
+    # Для простоты, если босса нет, вернем пустой список, как и было
+    
+    # === ИСПРАВЛЕНИЕ 1: Блок, если босса нет ===
     if not raid:
         return RaidState(
-            boss_name="Waiting...", max_hp=100, current_hp=0, 
-            active_debuffs={}, active_players_count=0, recent_logs=[], participants=[]
+            boss_name="Waiting...",
+            boss_type="normal",     # <--- ДОБАВЛЕНО (заглушка)
+            traits={},              # <--- ДОБАВЛЕНО (заглушка)
+            max_hp=100, 
+            current_hp=0, 
+            active_debuffs={}, 
+            active_players_count=0, 
+            recent_logs=[], 
+            participants=[]
         )
     
-    # 2. Логи (как было)
+    # 3. Логи (как было)
     logs_result = await db.execute(
         select(RaidLog, User.username)
         .join(User, RaidLog.user_id == User.id)
@@ -258,14 +268,12 @@ async def get_current_raid(db: Annotated[AsyncSession, Depends(get_db)]):
             created_at=log.created_at
         ))
 
-    # 3. ПОЛУЧЕНИЕ УЧАСТНИКОВ (НОВОЕ)
-    # Берем топ-12 активных игроков (сортировка по уровню или просто всех)
+    # 4. Участники
     users_result = await db.execute(select(User).limit(12))
     users = users_result.scalars().all()
     
     participants = []
     for u in users:
-        # Генерируем цвет на основе ID (чтобы у каждого был свой постоянный цвет)
         colors = ["#e94560", "#0f3460", "#533483", "#e62e2d", "#f2a365", "#222831", "#00adb5"]
         color = colors[u.id % len(colors)]
         
@@ -275,17 +283,19 @@ async def get_current_raid(db: Annotated[AsyncSession, Depends(get_db)]):
             avatar_color=color
         ))
 
-    # Кол-во игроков
     total_players = len(users)
 
+    # === ИСПРАВЛЕНИЕ 2: Финальный возврат ===
     return RaidState(
         boss_name=raid.boss_name,
+        boss_type=raid.boss_type, # <--- ДОБАВЛЕНО: берем из БД
+        traits=raid.traits,       # <--- ДОБАВЛЕНО: берем из БД
         max_hp=raid.max_hp,
         current_hp=raid.current_hp,
         active_debuffs=raid.active_debuffs,
         active_players_count=total_players,
         recent_logs=display_logs,
-        participants=participants # <--- Передаем
+        participants=participants
     )
 
 @app.get("/api/health")
