@@ -24,7 +24,27 @@ class BossFactory:
         difficulty_multiplier = 1.2
         
         target_hp = active_players * avg_damage_per_workout * workouts_per_week * difficulty_multiplier
-        return int(max(5000, target_hp))
+        return int(max(1000, target_hp))
+    
+    @staticmethod
+    def calculate_reward_pool(max_hp: int, traits: dict) -> int:
+        """
+        Расчет общего банка монет.
+        База: 1 монета за 10 HP.
+        Множители за сложность.
+        """
+        base_pool = max_hp / 10
+        multiplier = 1.0
+        
+        # Бонусы за трейты
+        if traits.get("armor_reduction"):
+            multiplier += 0.3 # +30% монет за броню
+        if traits.get("evasion_chance"):
+            multiplier += 0.3 # +30% за уворот
+        if traits.get("regen_daily_percent"):
+            multiplier += 0.5 # +50% за регенерацию (бесячий трейт)
+            
+        return int(base_pool * multiplier)
 
     @staticmethod
     def create_boss(active_players: int) -> Raid:

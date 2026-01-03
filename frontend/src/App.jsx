@@ -3,113 +3,118 @@ import { fetchRaidState, sendAttack, getUser, registerUser, updateUsername } fro
 import './App.css';
 
 function App() {
-  // Состояния приложения
+  // --- СОСТОЯНИЕ ---
   const [screen, setScreen] = useState('loading'); // loading | rules | welcome | main
   const [currentUser, setCurrentUser] = useState(null);
   const [raid, setRaid] = useState(null);
   
-  // Данные из Telegram
+  // Данные Telegram
   const [tgData, setTgData] = useState({ id: null, first_name: 'Hero' });
 
-  // Вспомогательная функция для расчета координат круга
-  const getPosition = (index, total, radius) => {
-    const angle = (index / total) * 2 * Math.PI; // Угол в радианах
-    const x = Math.cos(angle - Math.PI / 2) * radius; // -PI/2 чтобы первый был сверху
-    const y = Math.sin(angle - Math.PI / 2) * radius;
-    return { x, y };
-  };
-
-  // Данные для форм
+  // Состояние формы атаки
+  const [showAttackForm, setShowAttackForm] = useState(false);
   const [loadingAction, setLoadingAction] = useState(false);
   const [message, setMessage] = useState('');
-  const [editNameMode, setEditNameMode] = useState(false);
-  const [newNickname, setNewNickname] = useState('');
-
-  // Форма атаки (стейт)
+  
+  // Данные формы
   const [formData, setFormData] = useState({
     sport_type: 'run',
-    duration_minutes: 35,
+    duration_minutes: 30,
     calories: 300,
     distance_km: 5.0,
     avg_heart_rate: 140
   });
 
-  // 1. Инициализация при старте
+  // --- ЭФФЕКТЫ ---
+
+  // 1. Инициализация
   useEffect(() => {
-    // Получаем данные от Телеграм
     const tg = window.Telegram?.WebApp;
     let userId, firstName;
 
-    if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+    if (tg?.initDataUnsafe?.user) {
       userId = tg.initDataUnsafe.user.id;
       firstName = tg.initDataUnsafe.user.first_name;
-      tg.expand(); // Раскрываем на весь экран
+      tg.expand(); // На весь экран
     } else {
-      // Для тестов в браузере (без Телеграм)
-      userId = 123456789; // Фейковый ID
-      firstName = "BrowserUser";
+      // DEV MODE: Фейковые данные для браузера
+      userId = 777000; 
+      firstName = "DevHero";
     }
 
     setTgData({ id: userId, first_name: firstName });
     checkUserStatus(userId);
   }, []);
 
-  // 2. Проверка: новичок или старичок?
-  const checkUserStatus = async (id) => {
-    const user = await getUser(id);
-    if (user) {
-      setCurrentUser(user);
-      setNewNickname(user.username);
-      setScreen('welcome'); // Старичок -> Экран приветствия
-    } else {
-      setScreen('rules');   // Новичок -> Правила
-    }
-  };
-
-  // 3. Регистрация (Кнопка "Участвовать")
-  const handleRegister = async () => {
-    setLoadingAction(true);
-    try {
-      const user = await registerUser(tgData.id, tgData.first_name);
-      setCurrentUser(user);
-      setNewNickname(user.username);
-      setScreen('main'); // Сразу в бой
-      loadRaidData();
-    } catch (e) {
-      alert("Ошибка регистрации: " + e.message);
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
-  // 4. Вход в игру (Кнопка "В бой")
-  const handleEnterGame = () => {
-    setScreen('main');
-    loadRaidData();
-  };
-
-  // 5. Загрузка рейда (как раньше)
-  const loadRaidData = async () => {
-    const data = await fetchRaidState();
-    if (data) setRaid(data);
-  };
-
-  // Поллинг рейда
+  // 2. Поллинг (обновление данных раз в 3 сек)
   useEffect(() => {
     if (screen === 'main') {
+      loadRaidData(); // Первая загрузка
       const interval = setInterval(loadRaidData, 3000);
       return () => clearInterval(interval);
     }
   }, [screen]);
 
-  // 6. Атака
+  // --- ЛОГИКА ---
+
+  const checkUserStatus = async (id) => {
+    try {
+      const user = await getUser(id);
+      if (user) {
+        setCurrentUser(user);
+        setScreen('welcome');
+      } else {
+        setScreen('rules');
+      }
+    } catch (e) {
+      console.error("Connection error", e);
+      setScreen('rules'); // Fallback
+    }
+  };
+
+  const loadRaidData = async () => {
+    const data = await fetchRaidState();
+    if (data) setRaid(data);
+  };
+
+  const handleRegister = async () => {
+    haptic('impact');
+    setLoadingAction(true);
+    try {
+      const user = await registerUser(tgData.id, tgData.first_name);
+      setCurrentUser(user);
+      setScreen('main');
+      await loadRaidData();
+    } catch (e) {
+      alert("Ошибка: " + e.message);
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleEnterGame = () => {
+    haptic('selection');
+    setScreen('main');
+  };
+
   const handleAttack = async () => {
+    haptic('notification');
     setLoadingAction(true);
     setMessage('');
     try {
       const result = await sendAttack({ user_id: currentUser.id, ...formData });
-      setMessage(`💥 ${result.message} (+${result.gold_earned} 🪙)`);
-      await loadRaidData();
+      
+      // Обновляем золото пользователя локально, чтобы не ждать поллинга
+      setCurrentUser(prev => ({
+        ...prev,
+        xp: prev.xp + result.xp_earned,
+        // Если золото пришло в ответе (босс умер), обновляем
+        gold: prev.gold + result.gold_earned
+      }));
+
+      setMessage(`✅ ${result.message}`);
+      setShowAttackForm(false); // Закрываем форму после удара
+      await loadRaidData(); // Обновляем босса сразу
     } catch (e) {
       setMessage('❌ Ошибка: ' + e.message);
     } finally {
@@ -117,14 +122,12 @@ function App() {
     }
   };
 
-  // 7. Смена ника
-  const handleSaveName = async () => {
-    try {
-      const updated = await updateUsername(currentUser.id, newNickname);
-      setCurrentUser(updated);
-      setEditNameMode(false);
-    } catch (e) {
-      alert("Не удалось сменить имя");
+  // Хелпер для вибрации (если в TG)
+  const haptic = (type) => {
+    if (window.Telegram?.WebApp?.HapticFeedback) {
+      if (type === 'impact') window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+      if (type === 'notification') window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+      if (type === 'selection') window.Telegram.WebApp.HapticFeedback.selectionChanged();
     }
   };
 
@@ -134,142 +137,197 @@ function App() {
     setFormData(prev => ({ ...prev, [name]: name === 'sport_type' ? value : Number(value) }));
   };
 
-  // --- РЕНДЕРИНГ ЭКРАНОВ ---
+  const setSport = (type) => {
+    setFormData(prev => ({ ...prev, sport_type: type }));
+    haptic('selection');
+  };
 
-  if (screen === 'loading') {
-    return <div className="container" style={{textAlign:'center', marginTop: 50}}>Загрузка...</div>;
-  }
+  // Математика для орбиты
+  const getPosition = (index, total, radius) => {
+    if (total === 0) return { x: 0, y: 0 };
+    const angle = (index / total) * 2 * Math.PI; 
+    const x = Math.cos(angle - Math.PI / 2) * radius;
+    const y = Math.sin(angle - Math.PI / 2) * radius;
+    return { x, y };
+  };
 
-  // ЭКРАН 1: ПРАВИЛА (Для новых)
+  // --- РЕНДЕР КОМПОНЕНТЫ ---
+
+  // 1. Бейджи характеристик босса
+  const renderBossTraits = (traits) => {
+    if (!traits) return null;
+    const badges = [];
+    if (traits.armor_reduction) badges.push(<span key="armor" className="trait-badge armor">🛡️ Броня</span>);
+    if (traits.evasion_chance) badges.push(<span key="evasion" className="trait-badge evasion">💨 Ловкий</span>);
+    if (traits.regen_daily_percent) badges.push(<span key="regen" className="trait-badge toxic">☣️ Токсик</span>);
+    return badges.length ? <div className="traits-container">{badges}</div> : null;
+  };
+
+  // --- ЭКРАНЫ ---
+
+  if (screen === 'loading') return <div className="center-screen">Загрузка данных...</div>;
+
   if (screen === 'rules') {
     return (
-      <div className="container">
+      <div className="container fade-in">
         <div className="card">
-          <h1>📜 Кодекс Марафона</h1>
-          <p>Привет, {tgData.first_name}! Ты вступаешь в ряды Стражей Пульса.</p>
-          <ul style={{textAlign:'left', lineHeight: '1.6'}}>
-            <li>🛡️ <b>Цель:</b> Победить Титана Лени вместе с командой.</li>
-            <li>🏃 <b>Норма:</b> 3 тренировки в неделю по 30+ минут.</li>
-            <li>⚔️ <b>Битва:</b> Твои калории превращаются в урон.</li>
-            <li>💰 <b>Прогресс:</b> Копи монеты и качай уровень.</li>
+          <h1>📜 Кодекс</h1>
+          <p>Привет, {tgData.first_name}! Титан Лени угрожает нам.</p>
+          <ul className="rules-list">
+            <li>🏃 <b>Тренируйся:</b> Бег, Вело, Плаванье.</li>
+            <li>🔥 <b>Сжигай:</b> Калории = Урон по боссу.</li>
+            <li>💰 <b>Зарабатывай:</b> Золото дают за победу над боссом.</li>
+            <li>📈 <b>Доля:</b> Чем больше твой вклад, тем больше награда.</li>
           </ul>
           <button className="attack-btn" onClick={handleRegister} disabled={loadingAction}>
-            {loadingAction ? "Регистрация..." : "УЧАСТВОВАТЬ ✍️"}
+            {loadingAction ? "Регистрация..." : "Вступить в отряд"}
           </button>
         </div>
       </div>
     );
   }
 
-  // ЭКРАН 2: ПРИВЕТСТВИЕ (Для бывалых)
   if (screen === 'welcome') {
     return (
-      <div className="container">
-        <div className="card" style={{textAlign: 'center'}}>
-          <h1>👋 С возвращением!</h1>
-          <h2 style={{color: 'white', fontSize: '1.5em'}}>{currentUser.username}</h2>
-          <p>Уровень: {currentUser.level} | Золото: {currentUser.gold}</p>
-          <p>Титан ждет твоего удара.</p>
-          <button className="attack-btn" onClick={handleEnterGame}>
-            В АТАКУ! ⚔️
-          </button>
+      <div className="container fade-in">
+        <div className="card center-text">
+          <h1>Привет, {currentUser.username}!</h1>
+          <div className="stats-row">
+            <div>⭐ Lv. {currentUser.level}</div>
+            <div>💰 {currentUser.gold}</div>
+          </div>
+          <p>Твоя команда уже сражается.</p>
+          <button className="attack-btn" onClick={handleEnterGame}>В БОЙ ⚔️</button>
         </div>
       </div>
     );
   }
 
-  // ЭКРАН 3: ОСНОВНАЯ ИГРА
-  if (!raid) return <div className="container"><h2>Загрузка арены...</h2></div>;
-  
-  // Если массив participants вдруг пустой (старый бэк), делаем пустой массив
+  // --- ОСНОВНОЙ ЭКРАН ---
+  if (!raid) return <div className="center-screen">Поиск сигнала с арены...</div>;
+
   const players = raid.participants || [];
-  const radius = 110; // Радиус орбиты в пикселях
+  const radius = 100; // Радиус орбиты
 
   return (
-    <div className="container" style={{maxWidth: '600px'}}> 
+    <div className="container main-layout">
       
-      {/* --- ХЕДЕР (Ник и Золото) --- */}
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, padding: '0 10px'}}>
-        <div style={{color: '#aaa', fontSize: '0.9em'}}>
-             👤 {currentUser.username} (Lvl {currentUser.level})
+      {/* 1. Хедер */}
+      <header className="game-header">
+        <div className="user-info">
+          <span className="lvl-badge">{currentUser.level}</span>
+          <span>{currentUser.username}</span>
         </div>
-        <div style={{color: '#ffd700'}}>💰 {currentUser.gold}</div>
-      </div>
+        <div className="gold-info">
+          💰 {currentUser.gold}
+        </div>
+      </header>
 
-      {/* --- АРЕНА (ВИЗУАЛИЗАЦИЯ) --- */}
+      {/* 2. Арена */}
       <div className="battle-arena">
-        
-        {/* БОСС (Центр) */}
-        <div className="boss-center">
+        {/* Босс */}
+        <div className={`boss-center ${raid.boss_type}`}>
           <div className="boss-emoji">👹</div>
-          <div style={{fontSize: '10px', color: '#fff', marginTop: 5}}>
-             {raid.current_hp} HP
-          </div>
         </div>
 
-        {/* ИГРОКИ (По кругу) */}
+        {/* Игроки */}
         {players.map((p, index) => {
            const { x, y } = getPosition(index, players.length, radius);
            return (
-             <div 
-                key={index} 
-                className="player-orbit" 
-                style={{ transform: `translate(${x}px, ${y}px)` }}
-             >
+             <div key={index} className="player-orbit" style={{ transform: `translate(${x}px, ${y}px)` }}>
                <div className="player-avatar" style={{backgroundColor: p.avatar_color}}>
                  {p.username.charAt(0).toUpperCase()}
-               </div>
-               <div className="player-info">
-                 {p.username}<br/>
-                 <span style={{color: '#ffd700'}}>Lv.{p.level}</span>
                </div>
              </div>
            );
         })}
       </div>
 
-      {/* --- БЛОК ХП БАРА --- */}
-      <div className="card" style={{marginTop: '-20px', position: 'relative', zIndex: 20}}>
-        <h3>{raid.boss_name}</h3>
-        <div className="hp-container">
-            {/* Считаем % HP */}
-          <div className="hp-fill" style={{ width: `${Math.max(0, (raid.current_hp / raid.max_hp) * 100)}%` }}></div>
+      {/* 3. Инфо Босса */}
+      <div className="card boss-card">
+        <h2 className="boss-name">{raid.boss_name}</h2>
+        {renderBossTraits(raid.traits)}
+        
+        <div className="hp-wrapper">
+          <div className="hp-container">
+            <div className="hp-fill" style={{ width: `${Math.max(0, (raid.current_hp / raid.max_hp) * 100)}%` }}></div>
+          </div>
+          <span className="hp-numbers">{raid.current_hp} / {raid.max_hp} HP</span>
         </div>
+
         {raid.active_debuffs?.armor_break && (
-           <div style={{textAlign: 'center'}}><span className="debuff-badge">🛡️ БРОНЯ ПРОБИТА!</span></div>
+           <div className="debuff-notification">🔨 БРОНЯ РАСКОЛОТА! (+15% урона)</div>
         )}
       </div>
 
-      {/* --- КНОПКА АТАКИ (ФОРМА) --- */}
-      {/* ... Скрываем форму в аккордеон или оставляем как есть, давай оставим простой вариант ... */}
-      <div className="card">
-         {/* ... (Тут код формы из предыдущего ответа: селект спорта, инпуты и кнопка) ... */}
-         <h3>⚔️ Атаковать</h3>
-         <div className="form-group">
-            <select name="sport_type" value={formData.sport_type} onChange={handleChange} style={{marginBottom: 10}}>
-              <option value="run">🏃 Бег</option>
-              <option value="cycle">🚴 Велосипед</option>
-              <option value="swim">🏊 Плавание</option>
-              <option value="football">⚽ Футбол</option>
-            </select>
-            {/* Упрощенные инпуты для экономии места */}
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10}}>
-               <input type="number" name="duration_minutes" placeholder="Мин" value={formData.duration_minutes} onChange={handleChange} />
-               <input type="number" name="calories" placeholder="Ккал" value={formData.calories} onChange={handleChange} />
+      {/* 4. Форма Атаки (Улучшенная) */}
+      <div className="card action-card">
+        {!showAttackForm ? (
+          <button className="attack-btn primary" onClick={() => setShowAttackForm(true)}>
+            ВНЕСТИ ТРЕНИРОВКУ 📝
+          </button>
+        ) : (
+          <div className="attack-form fade-in">
+            <h3>Тип тренировки</h3>
+            <div className="sport-grid">
+              <button className={formData.sport_type === 'run' ? 'active' : ''} onClick={() => setSport('run')}>
+                🏃<br/>Бег
+              </button>
+              <button className={formData.sport_type === 'cycle' ? 'active' : ''} onClick={() => setSport('cycle')}>
+                🚴<br/>Вело
+              </button>
+              <button className={formData.sport_type === 'swim' ? 'active' : ''} onClick={() => setSport('swim')}>
+                🏊<br/>Вода
+              </button>
+              <button className={formData.sport_type === 'football' ? 'active' : ''} onClick={() => setSport('football')}>
+                ⚽<br/>Спорт
+              </button>
             </div>
-         </div>
-         <button className="attack-btn" onClick={handleAttack} disabled={loadingAction} style={{marginTop: 10}}>
-          {loadingAction ? "..." : "УДАРИТЬ 👊"}
-        </button>
-        {message && <div style={{marginTop: 10, textAlign: 'center', color: '#4caf50'}}>{message}</div>}
+
+            <div className="inputs-grid">
+              <label>
+                Время (мин)
+                <input type="number" name="duration_minutes" value={formData.duration_minutes} onChange={handleChange} />
+              </label>
+              <label>
+                Калории
+                <input type="number" name="calories" value={formData.calories} onChange={handleChange} />
+              </label>
+            </div>
+            
+            <div className="inputs-grid">
+              <label>
+                Дистанция (км)
+                <input type="number" name="distance_km" value={formData.distance_km} onChange={handleChange} />
+              </label>
+               <label>
+                Ср. Пульс
+                <input type="number" name="avg_heart_rate" value={formData.avg_heart_rate} onChange={handleChange} />
+              </label>
+            </div>
+
+            <div className="form-actions">
+              <button className="cancel-btn" onClick={() => setShowAttackForm(false)}>Отмена</button>
+              <button className="attack-btn" onClick={handleAttack} disabled={loadingAction}>
+                {loadingAction ? "Отправка..." : "АТАКОВАТЬ 👊"}
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {message && <div className="game-message">{message}</div>}
       </div>
 
-      {/* --- ЛОГИ (Снизу) --- */}
-      <div className="card">
-        <h4 style={{marginTop: 0, color: '#888'}}>Последние удары:</h4>
+      {/* 5. Логи */}
+      <div className="logs-container">
+        <h4>Хроники битвы:</h4>
         {raid.recent_logs.map((log, i) => (
-            <div key={i} style={{fontSize: '0.8em', borderBottom: '1px solid #333', padding: '5px 0'}}>
-              <b>{log.username}</b>: -{log.damage} ({log.sport_type})
+            <div key={i} className="log-item">
+              <span className="log-user">{log.username}</span> 
+              <span className="log-action">
+                {log.sport_type === 'swim' ? 'проплыл' : 'набегал'} на 
+                <span className="log-dmg"> -{log.damage}</span>
+              </span>
             </div>
         ))}
       </div>

@@ -22,6 +22,157 @@ body {
   width: 100%;
 }
 
+/* Бейджи характеристик */
+.traits-container {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.trait-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: white;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+
+.trait-badge.armor { background: #5d6d7e; border: 1px solid #aeb6bf; }
+.trait-badge.evasion { background: #3498db; border: 1px solid #85c1e9; }
+.trait-badge.toxic { background: #27ae60; border: 1px solid #52be80; box-shadow: 0 0 10px #2ecc71; }
+
+/* HP Bar и Текст */
+.hp-wrapper {
+  position: relative;
+  margin: 10px 0;
+}
+.hp-numbers {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.8em;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  color: white;
+  pointer-events: none;
+}
+
+/* Сетка выбора спорта */
+.sport-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.sport-grid button {
+  background: #2a2a40;
+  border: 2px solid #333;
+  border-radius: 8px;
+  padding: 10px 5px;
+  cursor: pointer;
+  color: #ccc;
+  font-size: 0.9em;
+  transition: all 0.2s;
+}
+
+.sport-grid button.active {
+  border-color: #e94560;
+  background: #1f1f30;
+  color: white;
+  transform: scale(1.05);
+  box-shadow: 0 0 10px rgba(233, 69, 96, 0.3);
+}
+
+/* Сетка инпутов */
+.inputs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.inputs-grid label {
+  font-size: 0.8em;
+  color: #888;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.inputs-grid input {
+  width: 100%;
+  padding: 8px;
+  background: #16213e;
+  border: 1px solid #333;
+  color: white;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.inputs-grid input:focus {
+  border-color: #e94560;
+  outline: none;
+}
+
+/* Кнопки формы */
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.cancel-btn {
+  background: transparent;
+  border: 1px solid #555;
+  color: #aaa;
+  padding: 10px;
+  border-radius: 8px;
+  flex: 1;
+  cursor: pointer;
+}
+
+.attack-btn.primary {
+  width: 100%;
+  background: linear-gradient(135deg, #e94560, #c0392b);
+}
+
+/* Анимация появления */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Сообщения */
+.game-message {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(46, 204, 113, 0.1);
+  border: 1px solid #2ecc71;
+  color: #2ecc71;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 0.9em;
+}
+
+.debuff-notification {
+  background: rgba(255, 215, 0, 0.15);
+  color: #ffd700;
+  font-size: 0.8em;
+  padding: 5px;
+  margin-top: 8px;
+  border-radius: 4px;
+  text-align: center;
+  border: 1px dashed #ffd700;
+}
+
 .card {
   background-color: var(--card-bg);
   border-radius: 12px;

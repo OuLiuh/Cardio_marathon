@@ -115,46 +115,33 @@ async def process_attack(
     workout: WorkoutData, 
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    # А. Юзер (код тот же)
+    # А. Юзер (Получаем/Создаем)
     user = await db.get(User, workout.user_id)
     if not user:
         user = User(id=workout.user_id, username="Unknown Hero")
         db.add(user)
         await db.flush() 
     
-    # Б. Получаем активный Рейд
+    # Б. Рейд (Получаем/Создаем)
     result = await db.execute(select(Raid).where(Raid.is_active == True))
     raid = result.scalars().first()
     
-    # === ГЕНЕРАЦИЯ ЕСЛИ НЕТ БОССА ===
     if not raid:
         active_count = await get_active_player_count(db)
         raid = BossFactory.create_boss(active_count)
         db.add(raid)
         await db.flush()
 
-    # === ЛОГИКА РАДИОАКТИВНОГО БОССА (РЕГЕНЕРАЦИЯ) ===
-    # Проверяем, прошла ли суточная отсечка с момента создания или прошлого регена
-    # Для упрощения: просто проверяем, наступил ли новый день относительно created_at
-    # (В реальном проде лучше хранить last_regen_time, но для MVP можно опустить)
-    if raid.traits.get("regen_daily_percent"):
-        # Тут нужна логика, но чтобы не спамить регеном при каждой атаке, 
-        # оставим пока просто как характеристику "Регенерирует 1% прямо во время атаки" 
-        # или просто пропустим сложную временную логику. 
-        # Давай сделаем так: Радиоактивный босс лечится на 0.5% при каждой атаке по нему!
-        # Это проще и веселее (игроки видят сопротивление).
-        heal = int(raid.max_hp * 0.005)
+    # В. Механика и Трейты
+    # --- ЛОГИКА РЕГЕНЕРАЦИИ (Toxic) ---
+    if raid.traits.get("regen_daily_percent") and raid.current_hp > 0:
+        heal = int(raid.max_hp * 0.005) # 0.5% отхил при ударе
         raid.current_hp = min(raid.max_hp, raid.current_hp + heal)
 
-    # В. Расчет механики
     StrategyClass = get_strategy(workout.sport_type)
-    
-    # Передаем traits
     strategy = StrategyClass(workout, user.level, raid.active_debuffs, raid.traits)
     calc_result = strategy.calculate()
     
-    # Г. Применение
-    # Если был промах (is_miss), урон 0
     damage_to_deal = calc_result.damage
     raid.current_hp = max(0, raid.current_hp - damage_to_deal)
     
@@ -163,67 +150,97 @@ async def process_attack(
         new_debuffs.update(calc_result.applied_debuffs)
         raid.active_debuffs = new_debuffs
 
-    # Д. Смерть и Респаун
-    if raid.current_hp == 0:
-        raid.is_active = False
-        # Бонус за убийство
-        user.gold += 500
-        
-        # === МГНОВЕННЫЙ РЕСПАУН ===
-        active_count = await get_active_player_count(db)
-        new_raid = BossFactory.create_boss(active_count)
-        db.add(new_raid)
-        # Старый коммитим как inactive, новый как active
-
-    # Е. Награды игроку (как было)
-    gold_gain = int(damage_to_deal / 10)
+    # Г. Награды (Gold теперь 0, XP даем сразу)
+    gold_gain = 0 
     xp_gain = 100
-    if calc_result.is_miss: 
-        gold_gain = 0 # За промах нет золота
-        
-    user.gold += gold_gain
-    user.xp += xp_gain
+    if calc_result.is_miss:
+        xp_gain = 10 # Утешительный опыт
     
-    # Level Up логика (оставляем старую)
+    user.xp += xp_gain
     if user.xp >= user.level * 1000:
         user.level += 1
         user.xp -= user.level * 1000
 
-    # Ж. Лог
-    log = RaidLog(
+    # Д. Логируем атаку СЕЙЧАС (до распределения наград, чтобы учесть этот урон)
+    current_log = RaidLog(
         raid_id=raid.id,
         user_id=user.id,
         sport_type=workout.sport_type,
         damage=damage_to_deal,
-        gold_earned=gold_gain,
+        gold_earned=0, # Пока 0, золото только в конце
         xp_earned=xp_gain,
         is_critical=calc_result.is_crit,
-        is_miss=calc_result.is_miss # <--- Пишем в лог
+        is_miss=calc_result.is_miss
     )
-    db.add(log)
+    db.add(current_log)
     
-    await db.commit()
-    
-    # Формируем сообщение
+    # Делаем flush, чтобы этот лог попал в транзакцию и учитывался в SELECT ниже
+    await db.flush()
+
     msg = f"Удар на {damage_to_deal}!"
-    if calc_result.is_miss:
-        msg = "💨 Босс УВЕРНУЛСЯ! (0 урона)"
-    elif calc_result.is_crit:
-        msg = "🔥 КРИТИЧЕСКИЙ УДАР!"
-        
-    if "armor_break" in calc_result.applied_debuffs:
-        msg += " 🛡️ Броня расколота!"
-    
-    # Если босс умер в эту атаку
+    if calc_result.is_miss: msg = "💨 Босс УВЕРНУЛСЯ!"
+    elif calc_result.is_crit: msg = "🔥 КРИТИЧЕСКИЙ УДАР!"
+    if "armor_break" in calc_result.applied_debuffs: msg += " 🛡️ Броня расколота!"
+
+    # Е. Смерть босса и РАСПРЕДЕЛЕНИЕ НАГРАД
     if raid.current_hp == 0:
-        msg += " ☠️ БОСС ПОВЕРЖЕН! Появляется новый..."
+        raid.is_active = False
+        msg += " ☠️ БОСС ПОВЕРЖЕН!"
+
+        # 1. Считаем общий пул
+        total_pool = BossFactory.calculate_reward_pool(raid.max_hp, raid.traits)
+        
+        # 2. Считаем суммарный урон по боссу (учитывая только что нанесенный)
+        # Сумма damage из RaidLog для текущего raid_id
+        stats_result = await db.execute(
+            select(RaidLog.user_id, func.sum(RaidLog.damage))
+            .where(RaidLog.raid_id == raid.id)
+            .group_by(RaidLog.user_id)
+        )
+        user_stats = stats_result.all() # Список кортежей [(user_id, total_dmg), ...]
+        
+        total_raid_damage = sum(dmg for _, dmg in user_stats)
+        
+        if total_raid_damage > 0:
+            # 3. Раздаем награды
+            distrib_msg = []
+            
+            # Получаем объекты пользователей для обновления
+            participant_ids = [uid for uid, _ in user_stats]
+            # Используем execute для массового обновления или цикл с get (цикл проще для MVP)
+            
+            for uid, dmg in user_stats:
+                share = dmg / total_raid_damage
+                payout = int(total_pool * share)
+                
+                # Если это текущий юзер, обновляем объект в памяти
+                if uid == user.id:
+                    user.gold += payout
+                    gold_gain = payout # Чтобы вернуть в ответе API
+                else:
+                    # Для остальных - обновляем в БД
+                    # Внимание: внутри одной транзакции лучше не делать лишних SELECT
+                    # Но здесь придется достать юзера
+                    p_user = await db.get(User, uid)
+                    if p_user:
+                        p_user.gold += payout
+            
+            msg += f" Награда: {gold_gain} 🪙 (Всего: {total_pool})"
+
+        # 4. Респаун
+        active_count = await get_active_player_count(db)
+        new_raid = BossFactory.create_boss(active_count)
+        db.add(new_raid)
+
+    # Ж. Финальный коммит
+    await db.commit()
 
     return AttackResult(
         damage_dealt=damage_to_deal,
-        gold_earned=gold_gain,
+        gold_earned=gold_gain, # Будет > 0 только если босс умер
         xp_earned=xp_gain,
         is_critical=calc_result.is_crit,
-        new_boss_hp=raid.current_hp, # Вернется 0 для старого, фронт обновится через поллинг и увидит нового
+        new_boss_hp=raid.current_hp,
         message=msg
     )
 
