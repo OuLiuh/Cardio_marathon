@@ -5,6 +5,10 @@ from typing import Annotated
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
+from datetime import datetime, timedelta
+import pytz
+
+from boss_factory import BossFactory
 
 # Импорты из твоих модулей
 # config импортируется внутри database.py, здесь он явно не нужен, 
@@ -91,108 +95,135 @@ async def update_user(user_id: int, data: UserUpdate, db: Annotated[AsyncSession
     await db.refresh(user)
     return user
 
+# Хелпер для получения количества активных игроков (за последнюю неделю)
+async def get_active_player_count(db: AsyncSession) -> int:
+    # Считаем уникальных юзеров в логах за 7 дней
+    seven_days_ago = datetime.now(pytz.utc) - timedelta(days=7)
+    result = await db.execute(
+        select(func.count(func.distinct(RaidLog.user_id)))
+        .where(RaidLog.created_at >= seven_days_ago)
+    )
+    count = result.scalar()
+    # Если игра новая, берем просто всех юзеров
+    if count == 0:
+        total_users = await db.execute(select(func.count(User.id)))
+        count = total_users.scalar()
+    return count if count > 0 else 1
+
 @app.post("/api/attack", response_model=AttackResult)
 async def process_attack(
     workout: WorkoutData, 
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    """
-    Основной метод атаки.
-    Принимает данные тренировки -> Считает урон -> Обновляет Босса и Юзера.
-    """
-    
-    # А. Получаем или создаем пользователя
-    # Используем get, так как ищем по Primary Key
+    # А. Юзер (код тот же)
     user = await db.get(User, workout.user_id)
-    
     if not user:
-        # Если юзер новый - создаем. Username можно будет обновить позже через WebApp data
         user = User(id=workout.user_id, username="Unknown Hero")
         db.add(user)
-        # Делаем flush, чтобы объект зафиксировался в сессии, но пока не коммитим окончательно
         await db.flush() 
     
-    # Б. Получаем активный Рейд (Босса)
+    # Б. Получаем активный Рейд
     result = await db.execute(select(Raid).where(Raid.is_active == True))
     raid = result.scalars().first()
     
+    # === ГЕНЕРАЦИЯ ЕСЛИ НЕТ БОССА ===
     if not raid:
-        # Если босса нет (убили или первый запуск), создаем нового
-        raid = Raid(
-            boss_name="Titan of Sloth", 
-            max_hp=50000, 
-            current_hp=50000,
-            active_debuffs={}
-        )
+        active_count = await get_active_player_count(db)
+        raid = BossFactory.create_boss(active_count)
         db.add(raid)
         await db.flush()
 
-    # В. Расчет механики (Стратегия)
+    # === ЛОГИКА РАДИОАКТИВНОГО БОССА (РЕГЕНЕРАЦИЯ) ===
+    # Проверяем, прошла ли суточная отсечка с момента создания или прошлого регена
+    # Для упрощения: просто проверяем, наступил ли новый день относительно created_at
+    # (В реальном проде лучше хранить last_regen_time, но для MVP можно опустить)
+    if raid.traits.get("regen_daily_percent"):
+        # Тут нужна логика, но чтобы не спамить регеном при каждой атаке, 
+        # оставим пока просто как характеристику "Регенерирует 1% прямо во время атаки" 
+        # или просто пропустим сложную временную логику. 
+        # Давай сделаем так: Радиоактивный босс лечится на 0.5% при каждой атаке по нему!
+        # Это проще и веселее (игроки видят сопротивление).
+        heal = int(raid.max_hp * 0.005)
+        raid.current_hp = min(raid.max_hp, raid.current_hp + heal)
+
+    # В. Расчет механики
     StrategyClass = get_strategy(workout.sport_type)
     
-    # Передаем данные, уровень юзера и текущие дебаффы босса
-    strategy = StrategyClass(workout, user.level, raid.active_debuffs)
+    # Передаем traits
+    strategy = StrategyClass(workout, user.level, raid.active_debuffs, raid.traits)
     calc_result = strategy.calculate()
     
-    # Г. Применение результатов
+    # Г. Применение
+    # Если был промах (is_miss), урон 0
+    damage_to_deal = calc_result.damage
+    raid.current_hp = max(0, raid.current_hp - damage_to_deal)
     
-    # 1. Наносим урон боссу
-    raid.current_hp = max(0, raid.current_hp - calc_result.damage)
-    
-    # 2. Обновляем дебаффы босса (если есть новые)
     if calc_result.applied_debuffs:
-        # Копируем и обновляем словарь, чтобы SQLAlchemy увидел изменение JSON поля
         new_debuffs = raid.active_debuffs.copy()
         new_debuffs.update(calc_result.applied_debuffs)
         raid.active_debuffs = new_debuffs
 
-    # 3. Проверка смерти босса
+    # Д. Смерть и Респаун
     if raid.current_hp == 0:
         raid.is_active = False
-        # Здесь можно добавить логику "Мега-награды" за убийство
-        # Например: user.gold += 500
+        # Бонус за убийство
+        user.gold += 500
+        
+        # === МГНОВЕННЫЙ РЕСПАУН ===
+        active_count = await get_active_player_count(db)
+        new_raid = BossFactory.create_boss(active_count)
+        db.add(new_raid)
+        # Старый коммитим как inactive, новый как active
 
-    # 4. Начисляем награды игроку
-    gold_gain = int(calc_result.damage / 10) # 1 монета за 10 урона
-    xp_gain = 100 # Базовый опыт за тренировку
-    
+    # Е. Награды игроку (как было)
+    gold_gain = int(damage_to_deal / 10)
+    xp_gain = 100
+    if calc_result.is_miss: 
+        gold_gain = 0 # За промах нет золота
+        
     user.gold += gold_gain
     user.xp += xp_gain
     
-    # Простейшая логика Level Up
-    xp_to_next_level = user.level * 1000
-    if user.xp >= xp_to_next_level:
+    # Level Up логика (оставляем старую)
+    if user.xp >= user.level * 1000:
         user.level += 1
-        user.xp = user.xp - xp_to_next_level # Оставляем остаток опыта
+        user.xp -= user.level * 1000
 
-    # Д. Логируем атаку в историю
+    # Ж. Лог
     log = RaidLog(
         raid_id=raid.id,
         user_id=user.id,
         sport_type=workout.sport_type,
-        damage=calc_result.damage,
-        gold_earned=gold_gain,
-        xp_earned=xp_gain,
-        is_critical=calc_result.is_crit
-    )
-    db.add(log)
-    
-    # Е. Финальное сохранение всего в БД
-    await db.commit()
-    
-    # Формируем сообщение для фронта
-    msg = "Удар нанесен!"
-    if calc_result.is_crit:
-        msg = "КРИТИЧЕСКИЙ УДАР!"
-    if "armor_break" in calc_result.applied_debuffs:
-        msg += " Броня Босса пробита!"
-
-    return AttackResult(
-        damage_dealt=calc_result.damage,
+        damage=damage_to_deal,
         gold_earned=gold_gain,
         xp_earned=xp_gain,
         is_critical=calc_result.is_crit,
-        new_boss_hp=raid.current_hp,
+        is_miss=calc_result.is_miss # <--- Пишем в лог
+    )
+    db.add(log)
+    
+    await db.commit()
+    
+    # Формируем сообщение
+    msg = f"Удар на {damage_to_deal}!"
+    if calc_result.is_miss:
+        msg = "💨 Босс УВЕРНУЛСЯ! (0 урона)"
+    elif calc_result.is_crit:
+        msg = "🔥 КРИТИЧЕСКИЙ УДАР!"
+        
+    if "armor_break" in calc_result.applied_debuffs:
+        msg += " 🛡️ Броня расколота!"
+    
+    # Если босс умер в эту атаку
+    if raid.current_hp == 0:
+        msg += " ☠️ БОСС ПОВЕРЖЕН! Появляется новый..."
+
+    return AttackResult(
+        damage_dealt=damage_to_deal,
+        gold_earned=gold_gain,
+        xp_earned=xp_gain,
+        is_critical=calc_result.is_crit,
+        new_boss_hp=raid.current_hp, # Вернется 0 для старого, фронт обновится через поллинг и увидит нового
         message=msg
     )
 

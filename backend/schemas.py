@@ -27,8 +27,12 @@ class RaidParticipant(BaseModel):
     username: str
     level: int
     avatar_color: str # Для красоты генерируем цвет
+    
+# backend/schemas.py (дополнение)
 class RaidState(BaseModel):
     boss_name: str
+    boss_type: str # <-- Добавить
+    traits: dict   # <-- Добавить
     max_hp: int
     current_hp: int
     active_debuffs: dict
