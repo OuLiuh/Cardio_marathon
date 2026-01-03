@@ -11,6 +11,14 @@ function App() {
   // Данные из Telegram
   const [tgData, setTgData] = useState({ id: null, first_name: 'Hero' });
 
+  // Вспомогательная функция для расчета координат круга
+  const getPosition = (index, total, radius) => {
+    const angle = (index / total) * 2 * Math.PI; // Угол в радианах
+    const x = Math.cos(angle - Math.PI / 2) * radius; // -PI/2 чтобы первый был сверху
+    const y = Math.sin(angle - Math.PI / 2) * radius;
+    return { x, y };
+  };
+
   // Данные для форм
   const [loadingAction, setLoadingAction] = useState(false);
   const [message, setMessage] = useState('');
@@ -170,92 +178,102 @@ function App() {
     );
   }
 
-  // ЭКРАН 3: ОСНОВНАЯ ИГРА (Как раньше, с добавкой смены ника)
-  if (!raid) return <div className="container"><h2>Связь с базой...</h2></div>;
-  const hpPercent = Math.max(0, (raid.current_hp / raid.max_hp) * 100);
+  // ЭКРАН 3: ОСНОВНАЯ ИГРА
+  if (!raid) return <div className="container"><h2>Загрузка арены...</h2></div>;
+  
+  // Если массив participants вдруг пустой (старый бэк), делаем пустой массив
+  const players = raid.participants || [];
+  const radius = 110; // Радиус орбиты в пикселях
 
   return (
-    <div className="container">
-      {/* Хедер с ником */}
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10}}>
-        {editNameMode ? (
-           <div style={{display: 'flex', gap: 5, width: '100%'}}>
-             <input value={newNickname} onChange={(e) => setNewNickname(e.target.value)} />
-             <button onClick={handleSaveName}>💾</button>
-           </div>
-        ) : (
-           <div style={{color: '#aaa', fontSize: '0.9em'}} onClick={() => setEditNameMode(true)}>
-             👤 {currentUser.username} ✏️
-           </div>
-        )}
+    <div className="container" style={{maxWidth: '600px'}}> 
+      
+      {/* --- ХЕДЕР (Ник и Золото) --- */}
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, padding: '0 10px'}}>
+        <div style={{color: '#aaa', fontSize: '0.9em'}}>
+             👤 {currentUser.username} (Lvl {currentUser.level})
+        </div>
         <div style={{color: '#ffd700'}}>💰 {currentUser.gold}</div>
       </div>
 
-      {/* БОСС */}
-      <div className="card">
-        <h1>💀 {raid.boss_name}</h1>
-        <div className="hp-container">
-          <div className="hp-fill" style={{ width: `${hpPercent}%` }}></div>
-          <div className="hp-text">{raid.current_hp} / {raid.max_hp} HP</div>
+      {/* --- АРЕНА (ВИЗУАЛИЗАЦИЯ) --- */}
+      <div className="battle-arena">
+        
+        {/* БОСС (Центр) */}
+        <div className="boss-center">
+          <div className="boss-emoji">👹</div>
+          <div style={{fontSize: '10px', color: '#fff', marginTop: 5}}>
+             {raid.current_hp} HP
+          </div>
         </div>
-        <div style={{textAlign: 'center', fontSize: '0.9em', color: '#888'}}>
-           Онлайн: {raid.active_players_count}
+
+        {/* ИГРОКИ (По кругу) */}
+        {players.map((p, index) => {
+           const { x, y } = getPosition(index, players.length, radius);
+           return (
+             <div 
+                key={index} 
+                className="player-orbit" 
+                style={{ transform: `translate(${x}px, ${y}px)` }}
+             >
+               <div className="player-avatar" style={{backgroundColor: p.avatar_color}}>
+                 {p.username.charAt(0).toUpperCase()}
+               </div>
+               <div className="player-info">
+                 {p.username}<br/>
+                 <span style={{color: '#ffd700'}}>Lv.{p.level}</span>
+               </div>
+             </div>
+           );
+        })}
+      </div>
+
+      {/* --- БЛОК ХП БАРА --- */}
+      <div className="card" style={{marginTop: '-20px', position: 'relative', zIndex: 20}}>
+        <h3>{raid.boss_name}</h3>
+        <div className="hp-container">
+            {/* Считаем % HP */}
+          <div className="hp-fill" style={{ width: `${Math.max(0, (raid.current_hp / raid.max_hp) * 100)}%` }}></div>
         </div>
         {raid.active_debuffs?.armor_break && (
-           <div className="debuff-badge" style={{marginTop: 5, display: 'inline-block'}}>🛡️ Броня пробита!</div>
+           <div style={{textAlign: 'center'}}><span className="debuff-badge">🛡️ БРОНЯ ПРОБИТА!</span></div>
         )}
       </div>
 
-      {/* ФОРМА */}
+      {/* --- КНОПКА АТАКИ (ФОРМА) --- */}
+      {/* ... Скрываем форму в аккордеон или оставляем как есть, давай оставим простой вариант ... */}
       <div className="card">
-        <h3>⚔️ Внести результат</h3>
-        <div className="form-group">
-          <label>Вид спорта:</label>
-          <select name="sport_type" value={formData.sport_type} onChange={handleChange}>
-            <option value="run">🏃 Бег</option>
-            <option value="cycle">🚴 Велосипед</option>
-            <option value="swim">🏊 Плавание</option>
-            <option value="football">⚽ Футбол</option>
-          </select>
-        </div>
-
-        <div style={{display: 'flex', gap: '10px'}}>
-            <div className="form-group" style={{flex: 1}}>
-            <label>Время (мин):</label>
-            <input type="number" name="duration_minutes" value={formData.duration_minutes} onChange={handleChange} />
+         {/* ... (Тут код формы из предыдущего ответа: селект спорта, инпуты и кнопка) ... */}
+         <h3>⚔️ Атаковать</h3>
+         <div className="form-group">
+            <select name="sport_type" value={formData.sport_type} onChange={handleChange} style={{marginBottom: 10}}>
+              <option value="run">🏃 Бег</option>
+              <option value="cycle">🚴 Велосипед</option>
+              <option value="swim">🏊 Плавание</option>
+              <option value="football">⚽ Футбол</option>
+            </select>
+            {/* Упрощенные инпуты для экономии места */}
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10}}>
+               <input type="number" name="duration_minutes" placeholder="Мин" value={formData.duration_minutes} onChange={handleChange} />
+               <input type="number" name="calories" placeholder="Ккал" value={formData.calories} onChange={handleChange} />
             </div>
-            <div className="form-group" style={{flex: 1}}>
-            <label>Ккал:</label>
-            <input type="number" name="calories" value={formData.calories} onChange={handleChange} />
-            </div>
-        </div>
-
-        <div style={{display: 'flex', gap: '10px'}}>
-            <div className="form-group" style={{flex: 1}}>
-            <label>Км:</label>
-            <input type="number" name="distance_km" value={formData.distance_km} onChange={handleChange} />
-            </div>
-            <div className="form-group" style={{flex: 1}}>
-            <label>Пульс:</label>
-            <input type="number" name="avg_heart_rate" value={formData.avg_heart_rate} onChange={handleChange} />
-            </div>
-        </div>
-
-        <button className="attack-btn" onClick={handleAttack} disabled={loadingAction}>
-          {loadingAction ? "..." : "НАНЕСТИ УДАР 👊"}
+         </div>
+         <button className="attack-btn" onClick={handleAttack} disabled={loadingAction} style={{marginTop: 10}}>
+          {loadingAction ? "..." : "УДАРИТЬ 👊"}
         </button>
-        {message && <div style={{marginTop: 15, textAlign: 'center', color: '#4caf50', fontWeight: 'bold'}}>{message}</div>}
+        {message && <div style={{marginTop: 10, textAlign: 'center', color: '#4caf50'}}>{message}</div>}
       </div>
 
-      {/* ЛОГИ */}
+      {/* --- ЛОГИ (Снизу) --- */}
       <div className="card">
-        <h3>📜 Хроника</h3>
+        <h4 style={{marginTop: 0, color: '#888'}}>Последние удары:</h4>
         {raid.recent_logs.map((log, i) => (
-            <div key={i} className="log-item">
-              <span className="log-highlight">{log.username}</span>: <span style={{color: '#ff4b1f'}}>{log.damage}</span> ({log.sport_type})
+            <div key={i} style={{fontSize: '0.8em', borderBottom: '1px solid #333', padding: '5px 0'}}>
+              <b>{log.username}</b>: -{log.damage} ({log.sport_type})
             </div>
         ))}
       </div>
+
     </div>
   );
 }
