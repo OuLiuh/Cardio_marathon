@@ -1,17 +1,12 @@
 import { useState, useEffect } from 'react';
-import { fetchRaidState, sendAttack, getUser, registerUser, updateUsername } from './api';
+import { fetchRaidState, sendAttack, getUser, registerUser } from './api';
 import './App.css';
 
 function App() {
-  // --- СОСТОЯНИЕ ---
-  const [screen, setScreen] = useState('loading'); // loading | rules | welcome | main
+  const [screen, setScreen] = useState('loading');
   const [currentUser, setCurrentUser] = useState(null);
   const [raid, setRaid] = useState(null);
-  
-  // Данные Telegram
   const [tgData, setTgData] = useState({ id: null, first_name: 'Hero' });
-
-  // Состояние формы атаки
   const [showAttackForm, setShowAttackForm] = useState(false);
   const [loadingAction, setLoadingAction] = useState(false);
   const [message, setMessage] = useState('');
@@ -20,14 +15,11 @@ function App() {
   const [formData, setFormData] = useState({
     sport_type: 'run',
     duration_minutes: 30,
-    calories: 300,
-    distance_km: 5.0,
-    avg_heart_rate: 140
+    calories: 0,
+    distance_km: 0.0,
+    avg_heart_rate: 0
   });
 
-  // --- ЭФФЕКТЫ ---
-
-  // 1. Инициализация
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     let userId, firstName;
@@ -35,9 +27,8 @@ function App() {
     if (tg?.initDataUnsafe?.user) {
       userId = tg.initDataUnsafe.user.id;
       firstName = tg.initDataUnsafe.user.first_name;
-      tg.expand(); // На весь экран
+      tg.expand();
     } else {
-      // DEV MODE: Фейковые данные для браузера
       userId = 777000; 
       firstName = "DevHero";
     }
@@ -46,16 +37,13 @@ function App() {
     checkUserStatus(userId);
   }, []);
 
-  // 2. Поллинг (обновление данных раз в 3 сек)
   useEffect(() => {
     if (screen === 'main') {
-      loadRaidData(); // Первая загрузка
+      loadRaidData();
       const interval = setInterval(loadRaidData, 3000);
       return () => clearInterval(interval);
     }
   }, [screen]);
-
-  // --- ЛОГИКА ---
 
   const checkUserStatus = async (id) => {
     try {
@@ -68,7 +56,7 @@ function App() {
       }
     } catch (e) {
       console.error("Connection error", e);
-      setScreen('rules'); // Fallback
+      setScreen('rules');
     }
   };
 
@@ -104,17 +92,15 @@ function App() {
     try {
       const result = await sendAttack({ user_id: currentUser.id, ...formData });
       
-      // Обновляем золото пользователя локально, чтобы не ждать поллинга
       setCurrentUser(prev => ({
         ...prev,
         xp: prev.xp + result.xp_earned,
-        // Если золото пришло в ответе (босс умер), обновляем
         gold: prev.gold + result.gold_earned
       }));
 
       setMessage(`✅ ${result.message}`);
-      setShowAttackForm(false); // Закрываем форму после удара
-      await loadRaidData(); // Обновляем босса сразу
+      setShowAttackForm(false);
+      await loadRaidData();
     } catch (e) {
       setMessage('❌ Ошибка: ' + e.message);
     } finally {
@@ -122,7 +108,6 @@ function App() {
     }
   };
 
-  // Хелпер для вибрации (если в TG)
   const haptic = (type) => {
     if (window.Telegram?.WebApp?.HapticFeedback) {
       if (type === 'impact') window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
@@ -131,7 +116,6 @@ function App() {
     }
   };
 
-  // Обработчик инпутов
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: name === 'sport_type' ? value : Number(value) }));
@@ -142,7 +126,6 @@ function App() {
     haptic('selection');
   };
 
-  // Математика для орбиты
   const getPosition = (index, total, radius) => {
     if (total === 0) return { x: 0, y: 0 };
     const angle = (index / total) * 2 * Math.PI; 
@@ -151,9 +134,6 @@ function App() {
     return { x, y };
   };
 
-  // --- РЕНДЕР КОМПОНЕНТЫ ---
-
-  // 1. Бейджи характеристик босса
   const renderBossTraits = (traits) => {
     if (!traits) return null;
     const badges = [];
@@ -163,7 +143,39 @@ function App() {
     return badges.length ? <div className="traits-container">{badges}</div> : null;
   };
 
-  // --- ЭКРАНЫ ---
+  // --- Хелпер для отрисовки полей формы ---
+  const renderFormInputs = () => {
+    const { sport_type } = formData;
+    const showDuration = sport_type === 'run' || sport_type === 'cycle';
+    const showDistance = sport_type === 'run' || sport_type === 'cycle' || sport_type === 'swim';
+    const showCalories = sport_type === 'football';
+
+    return (
+      <>
+        <div className="inputs-grid">
+          {showDuration && (
+            <label>
+              Время (мин)
+              <input type="number" name="duration_minutes" value={formData.duration_minutes} onChange={handleChange} placeholder="30" />
+            </label>
+          )}
+          {showCalories && (
+            <label>
+              Калории
+              <input type="number" name="calories" value={formData.calories} onChange={handleChange} placeholder="300" />
+            </label>
+          )}
+           {showDistance && (
+            <label>
+              Дистанция (км)
+              <input type="number" name="distance_km" value={formData.distance_km} onChange={handleChange} placeholder="5.0" />
+            </label>
+          )}
+        </div>
+        {/* Пульс пока можно скрыть или оставить опциональным, если он не влияет на расчет явно в ТЗ, но в старом коде был бонус. Оставим пока скрытым для простоты, как просили. */}
+      </>
+    );
+  };
 
   if (screen === 'loading') return <div className="center-screen">Загрузка данных...</div>;
 
@@ -176,8 +188,7 @@ function App() {
           <ul className="rules-list">
             <li>🏃 <b>Тренируйся:</b> Бег, Вело, Плаванье.</li>
             <li>🔥 <b>Сжигай:</b> Калории = Урон по боссу.</li>
-            <li>💰 <b>Зарабатывай:</b> Золото дают за победу над боссом.</li>
-            <li>📈 <b>Доля:</b> Чем больше твой вклад, тем больше награда.</li>
+            <li>💰 <b>Зарабатывай:</b> Золото делят победители.</li>
           </ul>
           <button className="attack-btn" onClick={handleRegister} disabled={loadingAction}>
             {loadingAction ? "Регистрация..." : "Вступить в отряд"}
@@ -203,34 +214,26 @@ function App() {
     );
   }
 
-  // --- ОСНОВНОЙ ЭКРАН ---
   if (!raid) return <div className="center-screen">Поиск сигнала с арены...</div>;
 
   const players = raid.participants || [];
-  const radius = 100; // Радиус орбиты
+  const radius = 100;
 
   return (
     <div className="container main-layout">
       
-      {/* 1. Хедер */}
       <header className="game-header">
         <div className="user-info">
           <span className="lvl-badge">{currentUser.level}</span>
           <span>{currentUser.username}</span>
         </div>
-        <div className="gold-info">
-          💰 {currentUser.gold}
-        </div>
+        <div className="gold-info">💰 {currentUser.gold}</div>
       </header>
 
-      {/* 2. Арена */}
       <div className="battle-arena">
-        {/* Босс */}
         <div className={`boss-center ${raid.boss_type}`}>
           <div className="boss-emoji">👹</div>
         </div>
-
-        {/* Игроки */}
         {players.map((p, index) => {
            const { x, y } = getPosition(index, players.length, radius);
            return (
@@ -243,7 +246,6 @@ function App() {
         })}
       </div>
 
-      {/* 3. Инфо Босса */}
       <div className="card boss-card">
         <h2 className="boss-name">{raid.boss_name}</h2>
         {renderBossTraits(raid.traits)}
@@ -254,13 +256,12 @@ function App() {
           </div>
           <span className="hp-numbers">{raid.current_hp} / {raid.max_hp} HP</span>
         </div>
-
+        
         {raid.active_debuffs?.armor_break && (
            <div className="debuff-notification">🔨 БРОНЯ РАСКОЛОТА! (+15% урона)</div>
         )}
       </div>
 
-      {/* 4. Форма Атаки (Улучшенная) */}
       <div className="card action-card">
         {!showAttackForm ? (
           <button className="attack-btn primary" onClick={() => setShowAttackForm(true)}>
@@ -284,27 +285,7 @@ function App() {
               </button>
             </div>
 
-            <div className="inputs-grid">
-              <label>
-                Время (мин)
-                <input type="number" name="duration_minutes" value={formData.duration_minutes} onChange={handleChange} />
-              </label>
-              <label>
-                Калории
-                <input type="number" name="calories" value={formData.calories} onChange={handleChange} />
-              </label>
-            </div>
-            
-            <div className="inputs-grid">
-              <label>
-                Дистанция (км)
-                <input type="number" name="distance_km" value={formData.distance_km} onChange={handleChange} />
-              </label>
-               <label>
-                Ср. Пульс
-                <input type="number" name="avg_heart_rate" value={formData.avg_heart_rate} onChange={handleChange} />
-              </label>
-            </div>
+            {renderFormInputs()}
 
             <div className="form-actions">
               <button className="cancel-btn" onClick={() => setShowAttackForm(false)}>Отмена</button>
@@ -318,14 +299,13 @@ function App() {
         {message && <div className="game-message">{message}</div>}
       </div>
 
-      {/* 5. Логи */}
       <div className="logs-container">
         <h4>Хроники битвы:</h4>
         {raid.recent_logs.map((log, i) => (
             <div key={i} className="log-item">
               <span className="log-user">{log.username}</span> 
               <span className="log-action">
-                {log.sport_type === 'swim' ? 'проплыл' : 'набегал'} на 
+                {log.sport_type === 'swim' ? 'проплыл' : 'нанес'} 
                 <span className="log-dmg"> -{log.damage}</span>
               </span>
             </div>
