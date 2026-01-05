@@ -1,6 +1,8 @@
+# backend/main.py
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Annotated
+# ДОБАВЬТЕ List В ЭТУ СТРОКУ:
+from typing import Annotated, List 
 
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,15 +10,19 @@ from sqlalchemy import select, func, desc
 from datetime import datetime, timedelta
 import pytz
 
-from boss_factory import BossFactory
-
-# Импорты из твоих модулей
-# config импортируется внутри database.py, здесь он явно не нужен, 
-# если мы не используем переменные напрямую в main.py
 from database import init_models, get_db
-from models import User, Raid, RaidLog
-from schemas import WorkoutData, AttackResult, RaidState, LogDisplay, UserRead, UserCreate, UserUpdate, RaidParticipant
+# Убедитесь, что UserUpgrade добавлен сюда:
+from models import User, Raid, RaidLog, UserUpgrade 
+# Убедитесь, что ShopItemRead и ShopBuyRequest добавлены сюда:
+from schemas import (
+    WorkoutData, AttackResult, RaidState, LogDisplay, 
+    UserRead, UserCreate, UserUpdate, RaidParticipant,
+    ShopItemRead, ShopBuyRequest
+)
 from mechanics import get_strategy
+from boss_factory import BossFactory
+# Убедитесь, что конфиг магазина импортирован:
+from shop_config import SHOP_ITEMS, SHOP_REGISTRY
 
 # --- 1. Lifespan (Запуск и инициализация БД) ---
 @asynccontextmanager
