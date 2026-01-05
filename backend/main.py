@@ -101,20 +101,13 @@ async def update_user(user_id: int, data: UserUpdate, db: Annotated[AsyncSession
     await db.refresh(user)
     return user
 
-# Хелпер для получения количества активных игроков (за последнюю неделю)
-async def get_active_player_count(db: AsyncSession) -> int:
-    # Считаем уникальных юзеров в логах за 7 дней
-    seven_days_ago = datetime.now(pytz.utc) - timedelta(days=7)
-    result = await db.execute(
-        select(func.count(func.distinct(RaidLog.user_id)))
-        .where(RaidLog.created_at >= seven_days_ago)
-    )
+# Хелпер для получения количества игроков
+async def get_total_users_count(db: AsyncSession) -> int:
+    """Считает всех зарегистрированных пользователей в БД"""
+    result = await db.execute(select(func.count(User.id)))
     count = result.scalar()
-    # Если игра новая, берем просто всех юзеров
-    if count == 0:
-        total_users = await db.execute(select(func.count(User.id)))
-        count = total_users.scalar()
-    return count if count > 0 else 1
+    # Если пользователей 0 или None, возвращаем 1, чтобы математика не ломалась
+    return count if count and count > 0 else 1
 
 # === SHOP ENDPOINTS ===
 
@@ -208,18 +201,14 @@ async def process_attack(
         db.add(user)
         await db.flush() 
     
-    # Загружаем апгрейды юзера для механики
-    # lazy="selectin" в модели User подгрузит их, но лучше явно достать, если сессия новая
-    # Хотя благодаря relationship они должны быть доступны user.upgrades
-    # Преобразуем в dict
     upgrades_dict = {u.upgrade_key: u.level for u in user.upgrades}
 
     result = await db.execute(select(Raid).where(Raid.is_active == True))
     raid = result.scalars().first()
     
     if not raid:
-        active_count = 1 # Упрощено для примера
-        raid = BossFactory.create_boss(active_count)
+        total_users = await get_total_users_count(db)
+        raid = BossFactory.create_boss(total_users)
         db.add(raid)
         await db.flush()
 
@@ -293,8 +282,8 @@ async def process_attack(
                     if p_user: p_user.gold += payout
             msg += f" Награда: {gold_gain} 🪙"
 
-        active_count = 1 
-        new_raid = BossFactory.create_boss(active_count)
+        total_users = await get_total_users_count(db)
+        new_raid = BossFactory.create_boss(total_users)
         db.add(new_raid)
 
     await db.commit()

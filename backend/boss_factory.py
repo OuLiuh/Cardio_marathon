@@ -11,19 +11,21 @@ class BossFactory:
     NAMES = ["Sloth", "Gluttony", "Entropy", "Static", "Couch Potato"]
     
     @staticmethod
-    def calculate_hp(active_players: int) -> int:
+    def calculate_hp(total_players: int) -> int:
         """
-        Формула: (Игроки * 3 тренировки * 350 ср.урон) * 1.2 (коэф. сложности)
-        Минимум 5000 HP, даже если игроков 0.
+        Формула: (Все Игроки * 3 тренировки * 350 ср.урон) * 1.2 (коэф. сложности)
+        Минимум 1000 HP.
         """
-        if active_players < 1:
-            active_players = 1
+        if total_players < 1:
+            total_players = 1
             
         avg_damage_per_workout = 350
         workouts_per_week = 3
-        difficulty_multiplier = 1.2
+        difficulty_multiplier = 1.2 # Можно повысить до 1.5, раз мы считаем всех, включая "мертвых душ"
         
-        target_hp = active_players * avg_damage_per_workout * workouts_per_week * difficulty_multiplier
+        target_hp = total_players * avg_damage_per_workout * workouts_per_week * difficulty_multiplier
+        
+        # Ставим минимум 5000, чтобы босс не умирал с одного удара
         return int(max(1000, target_hp))
     
     @staticmethod
@@ -47,7 +49,7 @@ class BossFactory:
         return int(base_pool * multiplier)
 
     @staticmethod
-    def create_boss(active_players: int) -> Raid:
+    def create_boss(total_players: int) -> Raid:
         # 1. Определяем тип босса (шансы)
         roll = random.random()
         
@@ -83,14 +85,11 @@ class BossFactory:
         base_name = f"{random.choice(BossFactory.PREFIXES)} of {random.choice(BossFactory.NAMES)}"
         final_name = f"{base_name} {name_suffix}".strip()
         
-        # 3. Считаем HP
-        hp = BossFactory.calculate_hp(active_players)
+        # Передаем общее кол-во игроков
+        hp = BossFactory.calculate_hp(total_players)
         
-        # Корректировки HP по типу
-        if boss_type == "swarm":
-            hp = int(hp * 0.8) # Стаю легче убить (по хп), но их много (визуально)
-        if boss_type == "armored":
-            hp = int(hp * 1.1) # Бронированный чуть жирнее
+        if boss_type == "swarm": hp = int(hp * 0.8)
+        if boss_type == "armored": hp = int(hp * 1.1)
 
         return Raid(
             boss_name=final_name,
