@@ -110,36 +110,121 @@ async def get_active_player_count(db: AsyncSession) -> int:
         count = total_users.scalar()
     return count if count > 0 else 1
 
+# === SHOP ENDPOINTS ===
+
+@app.get("/api/shop/{user_id}", response_model=List[ShopItemRead])
+async def get_shop(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+    # Получаем текущие улучшения пользователя
+    result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user_id))
+    user_upgrades_list = result.scalars().all()
+    
+    # Словарь {key: level}
+    current_levels = {u.upgrade_key: u.level for u in user_upgrades_list}
+    
+    response = []
+    for item in SHOP_ITEMS:
+        lvl = current_levels.get(item.key, 0)
+        is_max = lvl >= item.max_level
+        
+        # Проверяем доступность (пререквизиты)
+        locked = item.is_locked(current_levels)
+        
+        response.append(ShopItemRead(
+            key=item.key,
+            name=item.name,
+            description=item.description,
+            sport_type=item.sport_type,
+            current_level=lvl,
+            max_level=item.max_level,
+            next_price=item.get_price(lvl),
+            is_locked=locked,
+            is_maxed=is_max
+        ))
+    return response
+
+@app.post("/api/shop/buy")
+async def buy_item(req: ShopBuyRequest, db: Annotated[AsyncSession, Depends(get_db)]):
+    # 1. Юзер
+    user = await db.get(User, req.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # 2. Товар
+    item = SHOP_REGISTRY.get(req.item_key)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+        
+    # 3. Текущее состояние
+    result = await db.execute(
+        select(UserUpgrade)
+        .where(UserUpgrade.user_id == req.user_id, UserUpgrade.upgrade_key == req.item_key)
+    )
+    upgrade_entry = result.scalars().first()
+    current_level = upgrade_entry.level if upgrade_entry else 0
+    
+    # 4. Проверки
+    if current_level >= item.max_level:
+        raise HTTPException(status_code=400, detail="Max level reached")
+        
+    price = item.get_price(current_level)
+    if user.gold < price:
+        raise HTTPException(status_code=400, detail="Not enough gold")
+        
+    # Для проверки блокировки (супер-апгрейды) нужно знать все уровни юзера
+    all_upgrades_res = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == req.user_id))
+    all_upgrades = {u.upgrade_key: u.level for u in all_upgrades_res.scalars().all()}
+    
+    if item.is_locked(all_upgrades):
+        raise HTTPException(status_code=400, detail="Item is locked (requirements not met)")
+
+    # 5. Покупка
+    user.gold -= price
+    
+    if upgrade_entry:
+        upgrade_entry.level += 1
+    else:
+        new_entry = UserUpgrade(user_id=user.id, upgrade_key=item.key, level=1)
+        db.add(new_entry)
+        
+    await db.commit()
+    return {"status": "ok", "new_level": current_level + 1, "gold_left": user.gold}
+
+# === ATTACK LOGIC UPDATE ===
+
 @app.post("/api/attack", response_model=AttackResult)
 async def process_attack(
     workout: WorkoutData, 
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
-    # А. Юзер (Получаем/Создаем)
     user = await db.get(User, workout.user_id)
     if not user:
         user = User(id=workout.user_id, username="Unknown Hero")
         db.add(user)
         await db.flush() 
     
-    # Б. Рейд (Получаем/Создаем)
+    # Загружаем апгрейды юзера для механики
+    # lazy="selectin" в модели User подгрузит их, но лучше явно достать, если сессия новая
+    # Хотя благодаря relationship они должны быть доступны user.upgrades
+    # Преобразуем в dict
+    upgrades_dict = {u.upgrade_key: u.level for u in user.upgrades}
+
     result = await db.execute(select(Raid).where(Raid.is_active == True))
     raid = result.scalars().first()
     
     if not raid:
-        active_count = await get_active_player_count(db)
+        active_count = 1 # Упрощено для примера
         raid = BossFactory.create_boss(active_count)
         db.add(raid)
         await db.flush()
 
-    # В. Механика и Трейты
-    # --- ЛОГИКА РЕГЕНЕРАЦИИ (Toxic) ---
+    # Токсик реген
     if raid.traits.get("regen_daily_percent") and raid.current_hp > 0:
-        heal = int(raid.max_hp * 0.005) # 0.5% отхил при ударе
+        heal = int(raid.max_hp * 0.005)
         raid.current_hp = min(raid.max_hp, raid.current_hp + heal)
 
     StrategyClass = get_strategy(workout.sport_type)
-    strategy = StrategyClass(workout, user.level, raid.active_debuffs, raid.traits)
+    # ПЕРЕДАЕМ АПГРЕЙДЫ В СТРАТЕГИЮ
+    strategy = StrategyClass(workout, user.level, raid.active_debuffs, raid.traits, upgrades_dict)
     calc_result = strategy.calculate()
     
     damage_to_deal = calc_result.damage
@@ -150,31 +235,26 @@ async def process_attack(
         new_debuffs.update(calc_result.applied_debuffs)
         raid.active_debuffs = new_debuffs
 
-    # Г. Награды (Gold теперь 0, XP даем сразу)
     gold_gain = 0 
     xp_gain = 100
-    if calc_result.is_miss:
-        xp_gain = 10 # Утешительный опыт
+    if calc_result.is_miss: xp_gain = 10
     
     user.xp += xp_gain
     if user.xp >= user.level * 1000:
         user.level += 1
         user.xp -= user.level * 1000
 
-    # Д. Логируем атаку СЕЙЧАС (до распределения наград, чтобы учесть этот урон)
     current_log = RaidLog(
         raid_id=raid.id,
         user_id=user.id,
         sport_type=workout.sport_type,
         damage=damage_to_deal,
-        gold_earned=0, # Пока 0, золото только в конце
+        gold_earned=0,
         xp_earned=xp_gain,
         is_critical=calc_result.is_crit,
         is_miss=calc_result.is_miss
     )
     db.add(current_log)
-    
-    # Делаем flush, чтобы этот лог попал в транзакцию и учитывался в SELECT ниже
     await db.flush()
 
     msg = f"Удар на {damage_to_deal}!"
@@ -182,62 +262,40 @@ async def process_attack(
     elif calc_result.is_crit: msg = "🔥 КРИТИЧЕСКИЙ УДАР!"
     if "armor_break" in calc_result.applied_debuffs: msg += " 🛡️ Броня расколота!"
 
-    # Е. Смерть босса и РАСПРЕДЕЛЕНИЕ НАГРАД
     if raid.current_hp == 0:
         raid.is_active = False
         msg += " ☠️ БОСС ПОВЕРЖЕН!"
-
-        # 1. Считаем общий пул
         total_pool = BossFactory.calculate_reward_pool(raid.max_hp, raid.traits)
         
-        # 2. Считаем суммарный урон по боссу (учитывая только что нанесенный)
-        # Сумма damage из RaidLog для текущего raid_id
         stats_result = await db.execute(
             select(RaidLog.user_id, func.sum(RaidLog.damage))
             .where(RaidLog.raid_id == raid.id)
             .group_by(RaidLog.user_id)
         )
-        user_stats = stats_result.all() # Список кортежей [(user_id, total_dmg), ...]
-        
+        user_stats = stats_result.all()
         total_raid_damage = sum(dmg for _, dmg in user_stats)
         
         if total_raid_damage > 0:
-            # 3. Раздаем награды
-            distrib_msg = []
-            
-            # Получаем объекты пользователей для обновления
-            participant_ids = [uid for uid, _ in user_stats]
-            # Используем execute для массового обновления или цикл с get (цикл проще для MVP)
-            
             for uid, dmg in user_stats:
                 share = dmg / total_raid_damage
                 payout = int(total_pool * share)
-                
-                # Если это текущий юзер, обновляем объект в памяти
                 if uid == user.id:
                     user.gold += payout
-                    gold_gain = payout # Чтобы вернуть в ответе API
+                    gold_gain = payout
                 else:
-                    # Для остальных - обновляем в БД
-                    # Внимание: внутри одной транзакции лучше не делать лишних SELECT
-                    # Но здесь придется достать юзера
                     p_user = await db.get(User, uid)
-                    if p_user:
-                        p_user.gold += payout
-            
-            msg += f" Награда: {gold_gain} 🪙 (Всего: {total_pool})"
+                    if p_user: p_user.gold += payout
+            msg += f" Награда: {gold_gain} 🪙"
 
-        # 4. Респаун
-        active_count = await get_active_player_count(db)
+        active_count = 1 
         new_raid = BossFactory.create_boss(active_count)
         db.add(new_raid)
 
-    # Ж. Финальный коммит
     await db.commit()
 
     return AttackResult(
         damage_dealt=damage_to_deal,
-        gold_earned=gold_gain, # Будет > 0 только если босс умер
+        gold_earned=gold_gain,
         xp_earned=xp_gain,
         is_critical=calc_result.is_crit,
         new_boss_hp=raid.current_hp,

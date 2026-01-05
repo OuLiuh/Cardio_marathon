@@ -69,3 +69,22 @@ export const updateUsername = async (userId, newName) => {
   if (!response.ok) throw new Error('Update failed');
   return await response.json();
 };
+
+// ... getUser, registerUser ...
+
+export const fetchShop = async (userId) => {
+    const res = await fetch(`${API_URL}/shop/${userId}`);
+    if (!res.ok) throw new Error('Shop error');
+    return res.json();
+};
+
+export const buyItem = async (userId, itemKey) => {
+    const res = await fetch(`${API_URL}/shop/buy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, item_key: itemKey })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Buy error');
+    return data;
+};

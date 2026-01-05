@@ -335,3 +335,85 @@ button.attack-btn:active {
   50% { transform: scale(1.05); box-shadow: 0 0 35px rgba(233, 69, 96, 0.6); }
   100% { transform: scale(1); box-shadow: 0 0 20px rgba(233, 69, 96, 0.4); }
 }
+
+/* ... existing styles ... */
+
+.shop-btn-floating {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: #ffc107;
+    border: 2px solid #e0a800;
+    font-size: 20px;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    z-index: 100;
+}
+
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.back-btn {
+    background: transparent;
+    border: 1px solid #555;
+    color: #fff;
+    padding: 5px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.shop-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.shop-item {
+    background: #252540;
+    border-radius: 10px;
+    padding: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-left: 5px solid #555;
+}
+
+.shop-item.run { border-color: #e94560; }
+.shop-item.cycle { border-color: #f2a365; }
+.shop-item.swim { border-color: #00adb5; }
+.shop-item.football { border-color: #2ecc71; }
+.shop-item.locked { opacity: 0.5; filter: grayscale(1); }
+
+.item-info h3 { margin: 0 0 5px 0; font-size: 1.1em; text-align: left; }
+.item-info p { margin: 0; font-size: 0.85em; color: #aaa; text-align: left; }
+.lvl-tag { font-size: 0.7em; background: #444; padding: 2px 6px; border-radius: 4px; vertical-align: middle; }
+.lock-reason { color: #e74c3c; display: block; margin-top: 5px; }
+
+.buy-btn {
+    background: #27ae60;
+    border: none;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+}
+.buy-btn:disabled {
+    background: #444;
+    cursor: not-allowed;
+}
+
+.max-tag {
+    color: #f1c40f;
+    font-weight: bold;
+    border: 1px solid #f1c40f;
+    padding: 5px 10px;
+    border-radius: 6px;
+}

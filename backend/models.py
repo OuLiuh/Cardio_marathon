@@ -1,5 +1,5 @@
 # backend/models.py
-from sqlalchemy import BigInteger, String, Float, Integer, Boolean, JSON, ForeignKey, DateTime
+from sqlalchemy import BigInteger, String, Float, Integer, Boolean, JSON, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -18,13 +18,27 @@ class User(Base):
     gold: Mapped[int] = mapped_column(Integer, default=0)
     
     logs: Mapped[List["RaidLog"]] = relationship(back_populates="user")
+    upgrades: Mapped[List["UserUpgrade"]] = relationship(back_populates="user", lazy="selectin")
+
+class UserUpgrade(Base):
+    __tablename__ = "user_upgrades"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    upgrade_key: Mapped[str] = mapped_column(String) # Ключ улучшения (run_watch, etc)
+    level: Mapped[int] = mapped_column(Integer, default=0)
+    
+    user: Mapped["User"] = relationship(back_populates="upgrades")
+
+    # Уникальность: у юзера может быть только одна запись про конкретный апгрейд
+    __table_args__ = (UniqueConstraint('user_id', 'upgrade_key', name='_user_upgrade_uc'),)
 
 class Raid(Base):
     __tablename__ = "raids"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     boss_name: Mapped[str] = mapped_column(String)
-    boss_type: Mapped[str] = mapped_column(String, default="normal") # normal, armored, agile, radioactive, swarm
+    boss_type: Mapped[str] = mapped_column(String, default="normal")
     
     max_hp: Mapped[int] = mapped_column(Integer)
     current_hp: Mapped[int] = mapped_column(Integer)
