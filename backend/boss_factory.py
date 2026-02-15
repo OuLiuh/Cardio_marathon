@@ -5,6 +5,7 @@ from models import Raid
 class BossFactory:
     """
     Отвечает за генерацию параметров босса на основе статистики игроков.
+
     """
     
     PREFIXES = ["Titan", "Lord", "Giga", "Ancient", "Cyber"]
@@ -13,19 +14,18 @@ class BossFactory:
     @staticmethod
     def calculate_hp(total_players: int) -> int:
         """
-        Формула: (Все Игроки * 3 тренировки * 350 ср.урон) * 1.2 (коэф. сложности)
+        Формула: (Все Игроки * 3 тренировки * 350 ср.урон) * 1.2 (коэффициент сложности)
         Минимум 1000 HP.
         """
         if total_players < 1:
             total_players = 1
             
-        avg_damage_per_workout = 350
+        avg_damage_per_workout = 350 # Переписать, на запрос среднего (возможно вычислять как то косвенно)
         workouts_per_week = 3
-        difficulty_multiplier = 1.2 # Можно повысить до 1.5, раз мы считаем всех, включая "мертвых душ"
+        difficulty_multiplier = 1.2
         
         target_hp = total_players * avg_damage_per_workout * workouts_per_week * difficulty_multiplier
-        
-        # Ставим минимум 5000, чтобы босс не умирал с одного удара
+
         return int(max(1000, target_hp))
     
     @staticmethod
@@ -44,7 +44,7 @@ class BossFactory:
         if traits.get("evasion_chance"):
             multiplier += 0.3 # +30% за уворот
         if traits.get("regen_daily_percent"):
-            multiplier += 0.5 # +50% за регенерацию (бесячий трейт)
+            multiplier += 0.5 # +50% за регенерацию
             
         return int(base_pool * multiplier)
 
