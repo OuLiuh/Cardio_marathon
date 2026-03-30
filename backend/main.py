@@ -1,14 +1,14 @@
 # backend/main.py
 import asyncio
 from contextlib import asynccontextmanager
-# ДОБАВЬТЕ List В ЭТУ СТРОКУ:
-from typing import Annotated, List 
-
+from typing import Annotated, List
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 from datetime import datetime, timedelta
 import pytz
+from fastapi import File, UploadFile, Form
+from ocr_service import UniversalParser
 
 from database import init_models, get_db
 # Убедитесь, что UserUpgrade добавлен сюда:
@@ -21,7 +21,6 @@ from schemas import (
 )
 from mechanics import get_strategy
 from boss_factory import BossFactory
-# Убедитесь, что конфиг магазина импортирован:
 from shop_config import SHOP_ITEMS, SHOP_REGISTRY
 
 # --- 1. Lifespan (Запуск и инициализация БД) ---
@@ -60,6 +59,34 @@ app = FastAPI(
 )
 
 # --- 3. Роуты (API Endpoints) ---
+
+@app.post("/api/scan-workout", response_model=WorkoutData)
+async def scan_workout(
+        user_id: int = Form(...),
+        sport_type: str = Form(...),
+        file: UploadFile = File(...)
+):
+    """
+    Принимает картинку и тип спорта.
+    Возвращает распознанные данные.
+    ВНИМАНИЕ: Не сохраняет тренировку, только анализирует!
+    Клиент должен подтвердить данные и отправить их в /api/attack.
+    """
+    # 1. Читаем байты файла
+    image_bytes = await file.read()
+
+    # 2. Инициализируем наш парсер (создаем объект)
+    # Здесь можно было бы сделать if sport_type == 'swim': use SwimParser() и т.д.
+    parser = UniversalParser(user_id=user_id, sport_type=sport_type)
+
+    # 3. Запускаем метод
+    try:
+        workout_data = parser.parse_image(image_bytes)
+        return workout_data
+    except Exception as e:
+        print(f"OCR Error: {e}")
+        # Если не смогли распознать, возвращаем нули, но не крашимся
+        return WorkoutData(user_id=user_id, sport_type=sport_type)
 
 # 1. Проверка: существует ли пользователь?
 @app.get("/api/user/{user_id}", response_model=UserRead)
