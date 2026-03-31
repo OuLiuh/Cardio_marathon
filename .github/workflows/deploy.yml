@@ -9,16 +9,19 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Executing remote ssh commands
+      - name: Pull and deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          password: ${{ secrets.VPS_PASSWORD }}
           script: |
-            cd /app  # Путь к приложению на сервере
+            # Переходим в папку с проектом
+            cd app  # Путь к приложению на сервере
+            
+            # Получаем последние изменения из репозиторияи обновляем код
             git pull origin main
-            docker compose up -d --build  # Пересобирает и запускает контейнеры
+            
+            # Перезапускаем Docker-сервисы
+            docker compose down
+            docker compose up -d --build
