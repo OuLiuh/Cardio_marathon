@@ -19,6 +19,6 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            cd /path/to/your/app  # Путь к приложению на сервере
+            cd /app  # Путь к приложению на сервере
             git pull origin main
             docker compose up -d --build  # Пересобирает и запускает контейнеры
