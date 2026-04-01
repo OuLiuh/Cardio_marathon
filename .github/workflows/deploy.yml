@@ -13,13 +13,13 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
+          username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             # Переходим в папку с проектом
             cd app  # Путь к приложению на сервере
             
-            # Получаем последние изменения из репозиторияи обновляем код
+            # Получаем последние изменения из репозитория и обновляем код
             git pull origin main
             
             # Перезапускаем Docker-сервисы
