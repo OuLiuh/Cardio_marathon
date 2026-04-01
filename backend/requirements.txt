@@ -6,4 +6,4 @@ pydantic
 python-dotenv
 pytz
 pytesseract
-PIL
+Pillow
