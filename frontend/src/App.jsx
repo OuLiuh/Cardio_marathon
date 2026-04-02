@@ -484,10 +484,10 @@ function App() {
           <div className="attack-form fade-in">
             <h3>Тип тренировки</h3>
             <div className="sport-grid">
-              <button className={formData.sport_type === 'run' ? 'active' : ''} onClick={() => setSport('run')}>🏃<br/>Бег</button>
-              <button className={formData.sport_type === 'cycle' ? 'active' : ''} onClick={() => setSport('cycle')}>🚴<br/>Вело</button>
-              <button className={formData.sport_type === 'swim' ? 'active' : ''} onClick={() => setSport('swim')}>🏊<br/>Вода</button>
-              <button className={formData.sport_type === 'football' ? 'active' : ''} onClick={() => setSport('football')}>⚽<br/>Спорт</button>
+              {/* УДАЛЕНЫ КНОПКИ ВЫБОРА СПОРТА */}
+              <div style={{ textAlign: 'center', color: '#aaa', fontStyle: 'italic' }}>
+                Определяется автоматически...
+              </div>
             </div>
 
             {/* Режим загрузки фото */}
@@ -519,7 +519,17 @@ function App() {
                   {parsedData.distance_km > 0 && <li>📏 Дистанция: {parsedData.distance_km} км</li>}
                   {parsedData.duration_minutes > 0 && <li>⏱️ Время: {parsedData.duration_minutes} мин</li>}
                   {parsedData.calories > 0 && <li>🔥 Калории: {parsedData.calories} ккал</li>}
+                  <li><strong>🎯 Вид спорта:</strong> {parsedData.sport_type}</li>
                 </ul>
+
+                {/* Отладка: сырой текст OCR */}
+                <details style={{ fontSize: '0.8em', color: '#888', marginTop: '10px' }}>
+                  <summary>📄 Показать распознанный текст</summary>
+                  <pre style={{ whiteSpace: 'pre-wrap', background: '#111', padding: '10px', borderRadius: '6px' }}>
+                    {parsedData.raw_text}
+                  </pre>
+                </details>
+
                 <div className="form-actions">
                   <button className="cancel-btn" onClick={handleRetry}>Перезагрузить</button>
                   <button className="attack-btn" onClick={handleConfirm}>✅ Подтвердить</button>
@@ -527,9 +537,6 @@ function App() {
               </div>
             )}
 
-            <div className="form-actions">
-              <button className="cancel-btn" onClick={() => setShowAttackForm(false)}>Отмена</button>
-            </div>
             {message && <div className="game-message">{message}</div>}
           </div>
         )}
@@ -539,8 +546,15 @@ function App() {
       <div className="logs-container">
         {raid.recent_logs.map((log, i) => (
           <div key={i} className="log-item">
-            <span className="log-user">{log.username}</span> 
-            <span className="log-action">нанес <span className="log-dmg">-{log.damage}</span></span>
+            <span className="log-user">{log.username}</span>
+            <span className="log-action">
+              {log.message ? (
+                <>💬 {log.message}</>
+              ) : (
+                <>нанес <span className="log-dmg">-{log.damage}</span></>
+              )}
+            </span>
+            {log.message && !log.damage && <br />}
           </div>
         ))}
       </div>

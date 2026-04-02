@@ -208,11 +208,13 @@ async def process_attack(workout: WorkoutData, db: Annotated[AsyncSession, Depen
         user_id=user.id,
         sport_type=workout.sport_type,
         damage=damage_to_deal,
-        gold_earned=0,
+        gold_earned=gold_gain,
         xp_earned=xp_gain,
         is_critical=calc_result.is_crit,
-        is_miss=calc_result.is_miss
+        is_miss=calc_result.is_miss,
+        message=msg  # <-- Добавлено
     )
+
     db.add(current_log)
     await db.flush()
 
@@ -291,7 +293,13 @@ async def get_current_raid(db: Annotated[AsyncSession, Depends(get_db)]):
         .limit(5)
     )
     display_logs = [
-        LogDisplay(username=username or "Hero", damage=log.damage, sport_type=log.sport_type, created_at=log.created_at)
+        LogDisplay(
+            username=username or "Hero",
+            damage=log.damage,
+            sport_type=log.sport_type,
+            created_at=log.created_at,
+            message=log.message  # <-- теперь передаётся
+        )
         for log, username in logs_result
     ]
 

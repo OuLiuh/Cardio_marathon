@@ -58,14 +58,31 @@ class UniversalParser(BaseWorkoutParser):
     с помощью регулярных выражений после OCR-распознавания текста.
     """
 
-    def parse_image(self, image_bytes: bytes) -> WorkoutData:
+    def _detect_sport_type(self, text: str) -> str:
         """
-        Основной метод парсинга: принимает изображение, применяет OCR,
-        извлекает данные о дистанции, времени и калориях.
+        Автоматически определяет вид спорта по ключевым словам в тексте.
+        Возвращает: 'run', 'cycle', 'swim', 'football'
+        """
+        text_lower = text.lower().replace(',', '.').strip()
 
-        :param image_bytes: Изображение тренировки в байтах.
-        :return: Объект WorkoutData с заполненными полями.
-        """
+        # Словарь ключевых слов для каждого вида спорта
+        sport_keywords = {
+            'run': ['бег', 'км', 'km', 'pace', 'темп', 'min/km', 'мин/км'],
+            'cycle': ['велосипед', 'велосипедный', 'km/h', 'км/ч', 'cadence', 'обороты', 'высота', 'elevation'],
+            'swim': ['плавание', 'бассейн', 'лапти', 'баттерфляй', 'кроль', 'спина', 'подводное', 'дистанция в бассейне'],
+            'football': ['футбол', 'игра', 'матч', 'силовая', 'интервалы', 'sprint', 'ускорение', 'ускорения']
+        }
+
+        scores = {sport: 0 for sport in sport_keywords}
+        for word in text_lower.split():
+            for sport, keywords in sport_keywords.items():
+                if any(kw in word for kw in keywords):
+                    scores[sport] += 1
+
+        detected_sport = max(scores, key=scores.get)
+        return detected_sport if scores[detected_sport] > 0 else 'run'  # fallback to run
+
+    def parse_image(self, image_bytes: bytes) -> WorkoutData:
         if not isinstance(image_bytes, bytes) or len(image_bytes) == 0:
             raise ValueError("image_bytes должен быть непустым объектом bytes")
 
@@ -74,9 +91,7 @@ class UniversalParser(BaseWorkoutParser):
             raw_text = pytesseract.image_to_string(image, lang='rus+eng')
             logger.debug(f"Распознанный текст: {raw_text}")
         except pytesseract.TesseractNotFoundError:
-            raise RuntimeError(
-                "Tesseract не найден. Убедитесь, что он установлен и доступен в PATH."
-            )
+            raise RuntimeError("Tesseract не найден.")
         except Exception as e:
             raise RuntimeError(f"Ошибка при обработке изображения: {e}")
 
@@ -84,13 +99,17 @@ class UniversalParser(BaseWorkoutParser):
         duration = self._find_duration(raw_text)
         calories = self._find_calories(raw_text)
 
+        # Автоопределение вида спорта
+        auto_sport = self._detect_sport_type(raw_text)
+
         return WorkoutData(
             user_id=self.user_id,
-            sport_type=self.sport_type,
+            sport_type=auto_sport,  # теперь определяется автоматически
             distance_km=distance,
             duration_minutes=duration,
             calories=calories,
-            avg_heart_rate=None  # Пока не поддерживается
+            avg_heart_rate=None,
+            raw_text=raw_text  # добавлено для отладки
         )
 
     def _find_distance(self, text: str) -> float:

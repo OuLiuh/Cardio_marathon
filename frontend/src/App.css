@@ -252,6 +252,14 @@ button.attack-btn:active {
   padding: 10px 0;
   font-size: 0.9em;
 }
+
+.log-item .log-message {
+  font-size: 0.85em;
+  color: #ffd700;
+  margin-left: 10px;
+  font-style: italic;
+}
+
 .log-highlight { color: var(--text-primary); font-weight: bold; }
 .debuff-badge {
   background-color: #ffd700;

@@ -1,6 +1,6 @@
 # backend/schemas.py
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 # --- SHOP SCHEMAS ---
@@ -31,6 +31,7 @@ class LogDisplay(BaseModel):
     damage: int
     sport_type: str
     created_at: datetime
+    message: Optional[str] = None  # <-- новое поле
 
 class RaidState(BaseModel):
     boss_name: str
@@ -50,6 +51,7 @@ class WorkoutData(BaseModel):
     calories: Optional[int] = 0
     distance_km: Optional[float] = 0.0
     avg_heart_rate: Optional[int] = 0
+    raw_text: Optional[str] = None  # новое поле для отладки
     
 class AttackResult(BaseModel):
     damage_dealt: int
