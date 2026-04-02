@@ -161,110 +161,114 @@ async def buy_item(req: ShopBuyRequest, db: Annotated[AsyncSession, Depends(get_
 # --- Атака: обработка тренировки и нанесение урона боссу ---
 @app.post("/api/attack", response_model=AttackResult)
 async def process_attack(workout: WorkoutData, db: Annotated[AsyncSession, Depends(get_db)]):
-    user = await db.get(User, workout.user_id)
-    if not user:
-        user = User(id=workout.user_id, username="Unknown Hero")
-        db.add(user)
-        await db.flush()
+    try:
+        user = await db.get(User, workout.user_id)
+        if not user:
+            user = User(id=workout.user_id, username="Unknown Hero")
+            db.add(user)
+            await db.flush()
 
-    upgrades_dict = {u.upgrade_key: u.level for u in user.upgrades}
-    result = await db.execute(select(Raid).where(Raid.is_active == True))
-    raid = result.scalars().first()
+        upgrades_dict = {u.upgrade_key: u.level for u in user.upgrades}
+        result = await db.execute(select(Raid).where(Raid.is_active == True))
+        raid = result.scalars().first()
 
-    if not raid:
-        total_users = await get_total_users_count(db)
-        raid = BossFactory.create_boss(total_users)
-        db.add(raid)
-        await db.flush()
+        if not raid:
+            total_users = await get_total_users_count(db)
+            raid = BossFactory.create_boss(total_users)
+            db.add(raid)
+            await db.flush()
 
-    if raid.traits.get("regen_daily_percent") and raid.current_hp > 0:
-        heal = int(raid.max_hp * 0.005)
-        raid.current_hp = min(raid.max_hp, raid.current_hp + heal)
+        if raid.traits.get("regen_daily_percent") and raid.current_hp > 0:
+            heal = int(raid.max_hp * 0.005)
+            raid.current_hp = min(raid.max_hp, raid.current_hp + heal)
 
-    StrategyClass = get_strategy(workout.sport_type)
-    strategy = StrategyClass(workout, user.level, raid.active_debuffs, raid.traits, upgrades_dict)
-    calc_result = strategy.calculate()
+        StrategyClass = get_strategy(workout.sport_type)
+        strategy = StrategyClass(workout, user.level, raid.active_debuffs, raid.traits, upgrades_dict)
+        calc_result = strategy.calculate()
 
-    damage_to_deal = calc_result.damage
-    raid.current_hp = max(0, raid.current_hp - damage_to_deal)
+        damage_to_deal = calc_result.damage
+        raid.current_hp = max(0, raid.current_hp - damage_to_deal)
 
-    if calc_result.applied_debuffs:
-        new_debuffs = raid.active_debuffs.copy()
-        new_debuffs.update(calc_result.applied_debuffs)
-        raid.active_debuffs = new_debuffs
+        if calc_result.applied_debuffs:
+            new_debuffs = raid.active_debuffs.copy()
+            new_debuffs.update(calc_result.applied_debuffs)
+            raid.active_debuffs = new_debuffs
 
-    gold_gain = 0
-    xp_gain = 100
-    if calc_result.is_miss:
-        xp_gain = 10
+        gold_gain = 0
+        xp_gain = 100
+        if calc_result.is_miss:
+            xp_gain = 10
 
-    user.xp += xp_gain
-    if user.xp >= user.level * 1000:
-        user.level += 1
-        user.xp -= user.level * 1000
+        user.xp += xp_gain
+        if user.xp >= user.level * 1000:
+            user.level += 1
+            user.xp -= user.level * 1000
 
-    current_log = RaidLog(
-        raid_id=raid.id,
-        user_id=user.id,
-        sport_type=workout.sport_type,
-        damage=damage_to_deal,
-        gold_earned=gold_gain,
-        xp_earned=xp_gain,
-        is_critical=calc_result.is_crit,
-        is_miss=calc_result.is_miss,
-        message=msg  # <-- Добавлено
-    )
-
-    db.add(current_log)
-    await db.flush()
-
-    msg = f"Удар на {damage_to_deal}!"
-    if calc_result.is_miss:
-        msg = "💨 Босс УВЕРНУЛСЯ!"
-    elif calc_result.is_crit:
-        msg = "🔥 КРИТИЧЕСКИЙ УДАР!"
-    if "armor_break" in calc_result.applied_debuffs:
-        msg += " 🛡️ Броня расколота!"
-
-    if raid.current_hp == 0:
-        raid.is_active = False
-        msg += " ☠️ БОСС ПОВЕРЖЕН!"
-        total_pool = BossFactory.calculate_reward_pool(raid.max_hp, raid.traits)
-
-        stats_result = await db.execute(
-            select(RaidLog.user_id, func.sum(RaidLog.damage))
-            .where(RaidLog.raid_id == raid.id)
-            .group_by(RaidLog.user_id)
+        current_log = RaidLog(
+            raid_id=raid.id,
+            user_id=user.id,
+            sport_type=workout.sport_type,
+            damage=damage_to_deal,
+            gold_earned=gold_gain,
+            xp_earned=xp_gain,
+            is_critical=calc_result.is_crit,
+            is_miss=calc_result.is_miss,
+            message=msg  # <-- Добавлено
         )
-        user_stats = stats_result.all()
-        total_raid_damage = sum(dmg for _, dmg in user_stats)
 
-        if total_raid_damage > 0:
-            for uid, dmg in user_stats:
-                share = dmg / total_raid_damage
-                payout = int(total_pool * share)
-                if uid == user.id:
-                    user.gold += payout
-                    gold_gain = payout
-                else:
-                    p_user = await db.get(User, uid)
-                    if p_user:
-                        p_user.gold += payout
-            msg += f" Награда: {gold_gain} 🪙"
+        db.add(current_log)
+        await db.flush()
 
-        total_users = await get_total_users_count(db)
-        new_raid = BossFactory.create_boss(total_users)
-        db.add(new_raid)
+        msg = f"Удар на {damage_to_deal}!"
+        if calc_result.is_miss:
+            msg = "💨 Босс УВЕРНУЛСЯ!"
+        elif calc_result.is_crit:
+            msg = "🔥 КРИТИЧЕСКИЙ УДАР!"
+        if "armor_break" in calc_result.applied_debuffs:
+            msg += " 🛡️ Броня расколота!"
 
-    await db.commit()
-    return AttackResult(
-        damage_dealt=damage_to_deal,
-        gold_earned=gold_gain,
-        xp_earned=xp_gain,
-        is_critical=calc_result.is_crit,
-        new_boss_hp=raid.current_hp,
-        message=msg
-    )
+        if raid.current_hp == 0:
+            raid.is_active = False
+            msg += " ☠️ БОСС ПОВЕРЖЕН!"
+            total_pool = BossFactory.calculate_reward_pool(raid.max_hp, raid.traits)
+
+            stats_result = await db.execute(
+                select(RaidLog.user_id, func.sum(RaidLog.damage))
+                .where(RaidLog.raid_id == raid.id)
+                .group_by(RaidLog.user_id)
+            )
+            user_stats = stats_result.all()
+            total_raid_damage = sum(dmg for _, dmg in user_stats)
+
+            if total_raid_damage > 0:
+                for uid, dmg in user_stats:
+                    share = dmg / total_raid_damage
+                    payout = int(total_pool * share)
+                    if uid == user.id:
+                        user.gold += payout
+                        gold_gain = payout
+                    else:
+                        p_user = await db.get(User, uid)
+                        if p_user:
+                            p_user.gold += payout
+                msg += f" Награда: {gold_gain} 🪙"
+
+            total_users = await get_total_users_count(db)
+            new_raid = BossFactory.create_boss(total_users)
+            db.add(new_raid)
+
+        await db.commit()
+        return AttackResult(
+            damage_dealt=damage_to_deal,
+            gold_earned=gold_gain,
+            xp_earned=xp_gain,
+            is_critical=calc_result.is_crit,
+            new_boss_hp=raid.current_hp,
+            message=msg
+        )
+    except Exception as e:
+        logger.exception("Critical error in /api/attack")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # --- Получение текущего состояния рейда ---
 @app.get("/api/raid/current", response_model=RaidState)

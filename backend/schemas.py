@@ -52,6 +52,9 @@ class WorkoutData(BaseModel):
     distance_km: Optional[float] = 0.0
     avg_heart_rate: Optional[int] = 0
     raw_text: Optional[str] = None  # новое поле для отладки
+
+    class Config:
+        extra = "ignore"  # ← ИГНОРИРУЕТ ЛИШНИЕ ПОЛЯ, НАПРИМЕР raw_text
     
 class AttackResult(BaseModel):
     damage_dealt: int

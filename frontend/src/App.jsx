@@ -270,7 +270,9 @@ function App() {
    */
   const handleConfirm = () => {
     haptic('notification');
-    setFormData(prev => ({ ...prev, ...parsedData }));
+    // Исключаем raw_text из отправки
+    const { raw_text, ...safeData } = parsedData;
+    setFormData(prev => ({ ...prev, ...safeData }));
     setShowAttackForm(false);
     handleAttack();
   };
