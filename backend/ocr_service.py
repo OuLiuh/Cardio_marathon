@@ -1,7 +1,7 @@
 import re
 import logging
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps, ImageEnhance
 from abc import ABC, abstractmethod
 from io import BytesIO
 from schemas import WorkoutData
@@ -29,14 +29,23 @@ class BaseWorkoutParser(ABC):
 
     def _preprocess_image(self, image_bytes: bytes) -> Image.Image:
         """
-        Преобразует байты изображения в объект PIL и конвертирует в оттенки серого.
-
-        :param image_bytes: Изображение в виде байтов.
-        :return: Объект PIL.Image в градациях серого.
+        Преобразует байты изображения в объект PIL, конвертирует в оттенки серого
+        и инвертирует цвета для лучшего распознавания Tesseract'ом.
         """
         try:
             image = Image.open(BytesIO(image_bytes))
-            return image.convert('L')  # Чёрно-белое изображение улучшает OCR
+
+            # 1. Конвертируем в градации серого
+            image = image.convert('L')
+
+            # 2. Инвертируем цвета (белый текст на черном фоне -> черный текст на белом фоне)
+            image = ImageOps.invert(image)
+
+            # 3. (Опционально) Увеличиваем контрастность, чтобы "приглушить" серый фон карты
+            enhancer = ImageEnhance.Contrast(image)
+            image = enhancer.enhance(2.0)
+
+            return image
         except Exception as e:
             raise ValueError(f"Не удалось загрузить изображение: {e}")
 
@@ -88,7 +97,7 @@ class UniversalParser(BaseWorkoutParser):
 
         try:
             image = self._preprocess_image(image_bytes)
-            raw_text = pytesseract.image_to_string(image, lang='rus+eng', config='--psm 6 --oem 3')
+            raw_text = pytesseract.image_to_string(image, lang='rus+eng', config='--psm 11 --oem 3')
             logger.debug(f"Распознанный текст: {raw_text}")
         except pytesseract.TesseractNotFoundError:
             raise RuntimeError("Tesseract не найден.")
