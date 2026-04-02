@@ -262,6 +262,24 @@ button.attack-btn:active {
   margin-left: 5px;
 }
 
+.upload-label {
+  display: block;
+  text-align: center;
+  padding: 12px;
+  background: #2a2a40;
+  border: 2px dashed #555;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #aaa;
+  font-size: 0.9em;
+  margin-bottom: 12px;
+}
+
+.upload-label:hover {
+  border-color: #e94560;
+  color: white;
+}
+
 /* АРЕНА БИТВЫ */
 .battle-arena {
   position: relative;
