@@ -204,6 +204,44 @@ async def process_attack(workout: WorkoutData, db: Annotated[AsyncSession, Depen
             user.level += 1
             user.xp -= user.level * 1000
 
+        msg = f"Удар на {damage_to_deal}!"
+        if calc_result.is_miss:
+            msg = "💨 Босс УВЕРНУЛСЯ!"
+        elif calc_result.is_crit:
+            msg = "🔥 КРИТИЧЕСКИЙ УДАР!"
+        if "armor_break" in calc_result.applied_debuffs:
+            msg += " 🛡️ Броня расколота!"
+
+        if raid.current_hp == 0:
+            raid.is_active = False
+            msg += " ☠️ БОСС ПОВЕРЖЕН!"
+            total_pool = BossFactory.calculate_reward_pool(raid.max_hp, raid.traits)
+
+            stats_result = await db.execute(
+                select(RaidLog.user_id, func.sum(RaidLog.damage))
+                .where(RaidLog.raid_id == raid.id)
+                .group_by(RaidLog.user_id)
+            )
+            user_stats = stats_result.all()
+            total_raid_damage = sum(dmg for _, dmg in user_stats)
+
+            if total_raid_damage > 0:
+                for uid, dmg in user_stats:
+                    share = dmg / total_raid_damage
+                    payout = int(total_pool * share)
+                    if uid == user.id:
+                        user.gold += payout
+                        gold_gain = payout
+                    else:
+                        p_user = await db.get(User, uid)
+                        if p_user:
+                            p_user.gold += payout
+                msg += f" Награда: {gold_gain} 🪙"
+
+            total_users = await get_total_users_count(db)
+            new_raid = BossFactory.create_boss(total_users)
+            db.add(new_raid)
+
         current_log = RaidLog(
             raid_id=raid.id,
             user_id=user.id,
@@ -213,7 +251,7 @@ async def process_attack(workout: WorkoutData, db: Annotated[AsyncSession, Depen
             xp_earned=xp_gain,
             is_critical=calc_result.is_crit,
             is_miss=calc_result.is_miss,
-            message=msg  # <-- Добавлено
+            message=msg
         )
 
         db.add(current_log)
