@@ -50,28 +50,27 @@ app = FastAPI(lifespan=lifespan)
 @app.post("/api/attack", response_model=AttackResult)
 async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(get_db)):
     """
-    Обработка атаки. Проверяет корректность данных (особенно для бега)
-    и обновляет состояние рейда.
+    Обработка атаки с защитой от пустых данных и ZeroDivisionError.
     """
     try:
-        # 1. ВАЛИДАЦИЯ ДАННЫХ
+        # 1. Валидация данных (Защита от 500 ошибки при 0 значениях)
         if workout_data.sport_type == "run":
             if workout_data.distance_km <= 0 or workout_data.duration_minutes <= 0:
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        f"Ошибка распознавания бега: дистанция {workout_data.distance_km} км, "
-                        f"время {workout_data.duration_minutes} мин. Данные не могут быть нулевыми!"
+                        f"Данные бега не валидны. Расстояние: {workout_data.distance_km} км, "
+                        f"Время: {workout_data.duration_minutes} мин. "
+                        f"Пожалуйста, используйте более четкое фото."
                     )
                 )
-
         elif workout_data.distance_km <= 0 and workout_data.duration_minutes <= 0 and workout_data.calories <= 0:
             raise HTTPException(
                 status_code=400,
-                detail="Данные тренировки не найдены. Попробуйте сделать более четкое фото."
+                detail="Не удалось распознать данные тренировки. Попробуйте снова."
             )
 
-        # 2. ПОИСК ПОЛЬЗОВАТЕЛЯ И РЕЙДА
+        # 2. Получение данных
         user_result = await db.execute(select(User).where(User.id == workout_data.user_id))
         user = user_result.scalar_one_or_none()
         if not user:
@@ -84,9 +83,8 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
             await db.commit()
             await db.refresh(raid)
 
-        # 3. МЕХАНИКА УРОНА
+        # 3. Расчет урона
         strategy = get_strategy(workout_data.sport_type)
-
         upgrades_result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))
         upgrades = upgrades_result.scalars().all()
         upgrade_map = {upg.item_key: upg.level for upg in upgrades}
@@ -94,17 +92,17 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
         calc_result = strategy.calculate(workout_data, upgrade_map, raid.traits)
         damage_to_deal = min(calc_result.damage, raid.current_hp)
 
-        # 4. ОБНОВЛЕНИЕ БАЗЫ
+        # 4. Обновление состояния
         raid.current_hp -= damage_to_deal
         user.xp += calc_result.xp_earned
         user.gold += calc_result.gold_earned
 
-        # Левел-ап
+        # Уровень пользователя
         new_level = (user.xp // 1000) + 1
         if new_level > user.level:
             user.level = new_level
 
-        # Формирование сообщения
+        # Текст лога
         msg = f"Удар на {damage_to_deal}!"
         if calc_result.is_miss:
             msg = "💨 Босс УВЕРНУЛСЯ!"
@@ -114,7 +112,7 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
             else:
                 msg = f"⚔️ Нанесено {damage_to_deal} урона."
 
-        # Создание лога
+        # Запись лога
         new_log = RaidLog(
             raid_id=raid.id,
             user_id=user.id,
@@ -125,20 +123,18 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
         db.add(new_log)
         await db.flush()
 
-        # 5. СМЕРТЬ БОССА
+        # 5. Проверка победы
         if raid.current_hp <= 0:
             raid.current_hp = 0
             raid.is_active = False
             msg += " ☠️ БОСС ПОВЕРЖЕН!"
 
-            # Раздача золота всем, кто бил босса
             participants_result = await db.execute(
                 select(User).join(RaidLog).where(RaidLog.raid_id == raid.id).distinct()
             )
             for p in participants_result.scalars().all():
                 p.gold += 50
 
-            # Спавн нового босса
             await BossFactory.create_random_boss(db)
 
         await db.commit()
@@ -153,12 +149,14 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error in attack: {e}", exc_info=True)
+        logger.error(f"❌ Attack error: {e}", exc_info=True)
         await db.rollback()
-        raise HTTPException(status_code=500, detail="Ошибка при обработке атаки")
+        raise HTTPException(status_code=500, detail="Ошибка сервера при обработке атаки")
 
 
-@app.get("/api/raid/state", response_model=RaidState)
+# --- ИСПРАВЛЕННЫЕ ПУТИ (совместимость с фронтендом) ---
+
+@app.get("/api/raid/state")  # Базовый путь для состояния
 async def get_raid_state(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Raid).where(Raid.is_active == True))
     raid = result.scalar_one_or_none()
@@ -211,14 +209,17 @@ async def get_raid_state(db: AsyncSession = Depends(get_db)):
     )
 
 
-# --- ИСПРАВЛЕННЫЕ ПУТИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ (БЕЗ 'S') ---
+# Алиас для фронтенда, если он ищет /current
+@app.get("/api/raid/current", response_model=RaidState)
+async def get_raid_current_alias(db: AsyncSession = Depends(get_db)):
+    return await get_raid_state(db)
+
 
 @app.get("/api/user/{user_id}", response_model=UserRead)
 async def get_user_profile(user_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if not user: raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
@@ -226,8 +227,7 @@ async def get_user_profile(user_id: int, db: AsyncSession = Depends(get_db)):
 async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.id == user_data.id))
     existing = result.scalar_one_or_none()
-    if existing:
-        return existing
+    if existing: return existing
 
     new_user = User(
         id=user_data.id,
@@ -240,8 +240,6 @@ async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db
     await db.refresh(new_user)
     return new_user
 
-
-# --- ОСТАЛЬНЫЕ ЭНДПОИНТЫ ---
 
 @app.get("/api/shop/{user_id}", response_model=List[ShopItemRead])
 async def get_shop(user_id: int, db: AsyncSession = Depends(get_db)):
@@ -293,7 +291,7 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
         db.add(UserUpgrade(user_id=user.id, item_key=request.item_key, level=1))
 
     await db.commit()
-    return {"message": "Улучшение куплено!", "new_gold": user.gold}
+    return {"message": "Success", "new_gold": user.gold}
 
 
 @app.post("/api/ocr")
@@ -310,4 +308,4 @@ async def perform_ocr(
         return workout_data
     except Exception as e:
         logger.error(f"OCR Error: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка при распознавании текста")
+        raise HTTPException(status_code=500, detail="Ошибка OCR")
