@@ -270,11 +270,14 @@ function App() {
    */
   const handleConfirm = () => {
     haptic('notification');
-    // Исключаем raw_text из отправки
     const { raw_text, ...safeData } = parsedData;
+
+    // Стейт всё равно обновим (на всякий случай, если он нужен для UI)
     setFormData(prev => ({ ...prev, ...safeData }));
     setShowAttackForm(false);
-    handleAttack();
+
+    // Отправляем правильные данные СРАЗУ
+    handleAttack(safeData);
   };
 
   // --- ПОВТОРНАЯ ЗАГРУЗКА ФОТО ---
@@ -294,12 +297,16 @@ function App() {
    * Отправляет данные тренировки на сервер.
    * Обновляет XP, золото, HP босса.
    */
-  const handleAttack = async () => {
+  const handleAttack = async (dataToSubmit = null) => {
     haptic('notification');
     setLoadingAction(true);
     setMessage('');
+
+    // Если данные передали напрямую — используем их. Иначе берём из стейта.
+    const payload = dataToSubmit || formData;
+
     try {
-      const result = await sendAttack({ user_id: currentUser.id, ...formData });
+      const result = await sendAttack({ user_id: currentUser.id, ...payload });
       setCurrentUser(prev => ({
         ...prev,
         xp: prev.xp + result.xp_earned,
