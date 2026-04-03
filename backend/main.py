@@ -305,7 +305,7 @@ async def process_attack(workout: WorkoutData, db: Annotated[AsyncSession, Depen
             message=msg
         )
     except Exception as e:
-        print("Critical error in /api/attack: ", e)
+        print("Critical error in /api/attack: ", str(e))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # --- Получение текущего состояния рейда ---
