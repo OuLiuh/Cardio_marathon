@@ -294,18 +294,25 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
     return {"message": "Success", "new_gold": user.gold}
 
 
-@app.post("/api/ocr")
-async def perform_ocr(
-        user_id: int = Form(...),
-        sport_type: str = Form(...),
-        file: UploadFile = File(...),
-        db: AsyncSession = Depends(get_db)
+@app.post("/api/scan-workout", response_model=WorkoutData)
+async def scan_workout(
+    user_id: int = Form(...),
+    sport_type: str = Form(...),
+    file: UploadFile = File(...)
 ):
+    """
+    Принимает фото тренировки, распознаёт данные через OCR.
+    Возвращает предварительные данные без сохранения.
+    """
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Файл должен быть изображением")
+
+    image_bytes = await file.read()
+    parser = UniversalParser(user_id=user_id, sport_type=sport_type)
+
     try:
-        content = await file.read()
-        parser = UniversalParser(user_id, sport_type)
-        workout_data = parser.parse(content)
+        workout_data = parser.parse_image(image_bytes)
         return workout_data
     except Exception as e:
         logger.error(f"OCR Error: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка OCR")
+        return WorkoutData(user_id=user_id, sport_type=sport_type, raw_text=f"Ошибка OCR: {str(e)}")
