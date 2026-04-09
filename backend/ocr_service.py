@@ -97,7 +97,7 @@ class UniversalParser(BaseWorkoutParser):
 
         try:
             image = self._preprocess_image(image_bytes)
-            raw_text = pytesseract.image_to_string(image, lang='rus+eng', config='--psm 11 --oem 3')
+            raw_text = pytesseract.image_to_string(image, lang='rus', config='--psm 6 --oem 1')
             logger.debug(f"Распознанный текст: {raw_text}")
         except pytesseract.TesseractNotFoundError:
             raise RuntimeError("Tesseract не найден.")
