@@ -304,15 +304,23 @@ async def scan_workout(
     Принимает фото тренировки, распознаёт данные через OCR.
     Возвращает предварительные данные без сохранения.
     """
-    if not file.content_type.startswith("image/"):
+    logger.info(f"Получен запрос на OCR: user_id={user_id}, sport_type={sport_type}, file={file.filename}")
+    
+    if not file.content_type or not file.content_type.startswith("image/"):
+        logger.error(f"Неверный тип файла: {file.content_type}")
         raise HTTPException(status_code=400, detail="Файл должен быть изображением")
 
-    image_bytes = await file.read()
-    parser = UniversalParser(user_id=user_id, sport_type=sport_type)
-
     try:
+        image_bytes = await file.read()
+        logger.info(f"Размер изображения: {len(image_bytes)} байт")
+        
+        parser = UniversalParser(user_id=user_id, sport_type=sport_type)
         workout_data = parser.parse_image(image_bytes)
+        
+        logger.info(f"OCR успешен: {workout_data}")
         return workout_data
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"OCR Error: {e}")
-        return WorkoutData(user_id=user_id, sport_type=sport_type, raw_text=f"Ошибка OCR: {str(e)}")
+        logger.error(f"OCR Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка OCR: {str(e)}")

@@ -242,18 +242,14 @@ function App() {
     if (!photo) return;
     setLoadingAction(true);
     setMessage('');
-    const formData = new FormData();
-    formData.append('file', photo);
-    formData.append('user_id', currentUser.id);
-    formData.append('sport_type', formData.sport_type);
+    
+    const formDataObj = new FormData();
+    formDataObj.append('file', photo);
+    formDataObj.append('user_id', currentUser.id);
+    formDataObj.append('sport_type', formData.sport_type);
 
     try {
-      const res = await fetch('/api/scan-workout', {
-        method: 'POST',
-        body: formData,
-      });
-      if (!res.ok) throw new Error('Не удалось распознать фото');
-      const result = await res.json();
+      const result = await scanWorkout(formDataObj);
       setParsedData(result);
       setConfirmMode(true);
     } catch (e) {
@@ -493,10 +489,31 @@ function App() {
           <div className="attack-form fade-in">
             <h3>Тип тренировки</h3>
             <div className="sport-grid">
-              {/* УДАЛЕНЫ КНОПКИ ВЫБОРА СПОРТА */}
-              <div style={{ textAlign: 'center', color: '#aaa', fontStyle: 'italic' }}>
-                Определяется автоматически...
-              </div>
+              <button 
+                className={`sport-btn ${formData.sport_type === 'run' ? 'active' : ''}`}
+                onClick={() => setSport('run')}
+              >
+                🏃 Бег
+              </button>
+              <button 
+                className={`sport-btn ${formData.sport_type === 'cycle' ? 'active' : ''}`}
+                onClick={() => setSport('cycle')}
+              >
+                🚴 Велосипед
+              </button>
+              <button 
+                className={`sport-btn ${formData.sport_type === 'swim' ? 'active' : ''}`}
+                onClick={() => setSport('swim')}
+              >
+                🏊 Бассейн
+              </button>
+              <button 
+                className={`sport-btn ${formData.sport_type === 'football' ? 'active' : ''}`}
+                onClick={() => setSport('football')}
+              >
+                ⚽ Футбол
+              </button>
+            
             </div>
 
             {/* Режим загрузки фото */}

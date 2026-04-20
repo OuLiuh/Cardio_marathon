@@ -1,7 +1,7 @@
 import re
 import logging
 import pytesseract
-from PIL import Image, ImageOps, ImageEnhance
+from PIL import Image, ImageOps, ImageEnhance, ImageFilter
 from abc import ABC, abstractmethod
 from io import BytesIO
 from schemas import WorkoutData
@@ -14,82 +14,53 @@ logger = logging.getLogger(__name__)
 class BaseWorkoutParser(ABC):
     """
     Абстрактный класс для парсинга упражнений.
-    Определяет общий интерфейс и базовые методы для всех парсеров.
     """
 
     def __init__(self, user_id: int, sport_type: str):
-        """
-        Инициализация парсера.
-
-        :param user_id: ID пользователя для привязки данных.
-        :param sport_type: Тип спорта (например, "бег", "велосипед").
-        """
         self.user_id = user_id
         self.sport_type = sport_type
 
     def _preprocess_image(self, image_bytes: bytes) -> Image.Image:
         """
-        Преобразует байты изображения в объект PIL, конвертирует в оттенки серого
-        и инвертирует цвета для лучшего распознавания Tesseract'ом.
+        Улучшенная предобработка изображения для OCR.
         """
         try:
             image = Image.open(BytesIO(image_bytes))
-
-            # 1. Конвертируем в градации серого
+            
+            # Конвертируем в градации серого
             image = image.convert('L')
-
-            # 2. Инвертируем цвета (белый текст на черном фоне -> черный текст на белом фоне)
-            image = ImageOps.invert(image)
-
-            # 3. (Опционально) Увеличиваем контрастность, чтобы "приглушить" серый фон карты
+            
+            # Увеличиваем размер для лучшего распознавания
+            image = image.resize((image.width * 2, image.height * 2), Image.Resampling.LANCZOS)
+            
+            # Увеличиваем контрастность
             enhancer = ImageEnhance.Contrast(image)
             image = enhancer.enhance(2.0)
-
+            
+            # Увеличиваем яркость
+            enhancer = ImageEnhance.Brightness(image)
+            image = enhancer.enhance(1.2)
+            
+            # Применяем резкость
+            enhancer = ImageEnhance.Sharpness(image)
+            image = enhancer.enhance(1.5)
+            
+            # Бинаризация (черно-белое)
+            image = image.point(lambda x: 0 if x < 128 else 255, mode='1')
+            
             return image
         except Exception as e:
             raise ValueError(f"Не удалось загрузить изображение: {e}")
 
     @abstractmethod
     def parse_image(self, image_bytes: bytes) -> WorkoutData:
-        """
-        Абстрактный метод для парсинга изображения.
-        Должен быть реализован в подклассах.
-
-        :param image_bytes: Изображение в байтах.
-        :return: Объект WorkoutData с распознанными данными.
-        """
         pass
 
 
 class UniversalParser(BaseWorkoutParser):
     """
-    Универсальный парсер. Пытается найти знакомые паттерны (км, ккал, мин)
-    с помощью регулярных выражений после OCR-распознавания текста.
+    Универсальный парсер с улучшенным поиском метрик.
     """
-
-    def _detect_sport_type(self, text: str) -> str:
-        """
-        Автоматически определяет вид спорта по ключевым словам в тексте.
-        Возвращает: 'run', 'cycle', 'swim', 'football'
-        """
-        text_lower = text.lower().replace(',', '.').strip()
-
-        # Словарь ключевых слов для каждого вида спорта
-        sport_keywords = {
-            'run': ['бег', 'км', 'km', 'pace', 'темп', 'min/km', 'мин/км'],
-            'cycle': ['велосипед', 'велосипедный', 'km/h', 'км/ч', 'cadence', 'обороты', 'высота', 'elevation'],
-            'swim': ['плавание', 'бассейн', 'лапти', 'баттерфляй', 'кроль', 'спина', 'подводное', 'дистанция в бассейне'],
-            'football': ['футбол', 'игра', 'матч', 'силовая', 'интервалы', 'sprint', 'ускорение', 'ускорения']
-        }
-
-        scores = {sport: 0 for sport in sport_keywords}
-        for word in text_lower.split():
-            for sport, keywords in sport_keywords.items():
-                if any(kw in word for kw in keywords):
-                    scores[sport] += 1
-
-        detected_sport = max(scores, key=scores.get)
-        return detected_sport if scores[detected_sport] > 0 else 'run'  # fallback to run
 
     def parse_image(self, image_bytes: bytes) -> WorkoutData:
         if not isinstance(image_bytes, bytes) or len(image_bytes) == 0:
@@ -97,91 +68,109 @@ class UniversalParser(BaseWorkoutParser):
 
         try:
             image = self._preprocess_image(image_bytes)
-            raw_text = pytesseract.image_to_string(image, lang='rus', config='--psm 6 --oem 1')
-            logger.debug(f"Распознанный текст: {raw_text}")
+            
+            # Распознавание с разными конфигурациями для лучшего результата
+            raw_text = pytesseract.image_to_string(image, lang='rus+eng', config='--psm 6 --oem 1')
+            
+            # Дополнительная попытка с другим режимом
+            raw_text_alt = pytesseract.image_to_string(image, lang='rus+eng', config='--psm 11 --oem 1')
+            
+            # Объединяем результаты
+            raw_text = raw_text + "\n" + raw_text_alt
+            
+            logger.info(f"Распознанный текст для user {self.user_id}: {raw_text}")
         except pytesseract.TesseractNotFoundError:
-            raise RuntimeError("Tesseract не найден.")
+            raise RuntimeError("Tesseract не найден. Установите tesseract-ocr.")
         except Exception as e:
+            logger.error(f"OCR ошибка: {e}", exc_info=True)
             raise RuntimeError(f"Ошибка при обработке изображения: {e}")
 
+        # Поиск метрик
         distance = self._find_distance(raw_text)
         duration = self._find_duration(raw_text)
         calories = self._find_calories(raw_text)
 
-        # Автоопределение вида спорта
-        auto_sport = self._detect_sport_type(raw_text)
+        logger.info(f"Распознанные метрики: distance={distance}km, duration={duration}min, calories={calories}kcal")
 
         return WorkoutData(
             user_id=self.user_id,
-            sport_type=auto_sport,  # теперь определяется автоматически
+            sport_type=self.sport_type,  # Используем указанный пользователем тип
             distance_km=distance,
             duration_minutes=duration,
             calories=calories,
-            avg_heart_rate=None,
-            raw_text=raw_text  # добавлено для отладки
+            avg_heart_rate=0,
+            raw_text=raw_text
         )
 
     def _find_distance(self, text: str) -> float:
         """
-        Ищет в тексте значение дистанции с единицами измерения (km, км и др.).
-
-        Поддерживает: km, км, километров, км., с десятичными точками и запятыми.
-        Примеры: "5.2 km", "10,5 км".
-
-        :param text: Текст, полученный из OCR.
-        :return: Дистанция в километрах или 0.0, если не найдено.
+        Ищет дистанцию с поддержкой различных форматов.
         """
-        match = re.search(
-            r'(\d+(?:[.,]\d+)?)\s*(?:km|км|километр|километров|км\.)', text, re.IGNORECASE
-        )
-        if match:
-            val_str = match.group(1).replace(',', '.')
-            try:
-                return float(val_str)
-            except ValueError:
-                return 0.0
+        text = text.lower().replace(',', '.').replace(' ', '')
+        
+        # Паттерны: 5.2km, 10.5км, 3километра, 7.км
+        patterns = [
+            r'(\d+(?:\.\d+)?)\s*(?:km|км|километр[аов]?)',
+            r'(\d+(?:\.\d+)?)\s*k',
+            r'дистанция[:\s]*(\d+(?:\.\d+)?)',
+            r'distance[:\s]*(\d+(?:\.\d+)?)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    return float(match.group(1))
+                except ValueError:
+                    continue
+        
         return 0.0
 
     def _find_duration(self, text: str) -> int:
         """
-        Ищет в тексте продолжительность в форматах:
-        - ЧЧ:ММ:СС (например, 01:30:45)
-        - ММ:СС (например, 45:30 — 45 минут 30 секунд)
-
-        :param text: Текст, полученный из OCR.
-        :return: Общее время в минутах или 0, если не найдено.
+        Ищет продолжительность в различных форматах.
         """
+        text_lower = text.lower()
+        
         # Формат ЧЧ:ММ:СС
         time_match = re.search(r'(\d{1,2}):(\d{2}):(\d{2})', text)
         if time_match:
             hours, minutes, seconds = map(int, time_match.groups())
-            return hours * 60 + minutes
+            return hours * 60 + minutes + (1 if seconds >= 30 else 0)
 
-        # Формат ММ:СС (до 599 минут)
+        # Формат ММ:СС
         time_match = re.search(r'(\d{1,3}):(\d{2})\b', text)
         if time_match:
             minutes, seconds = map(int, time_match.groups())
-            if minutes < 600:  # Разумное ограничение
-                return minutes + (1 if seconds >= 30 else 0)  # Округление по секундам
+            if minutes < 600:
+                return minutes + (1 if seconds >= 30 else 0)
+
+        # Поиск по ключевым словам: время, duration, time
+        duration_match = re.search(r'(?:время|duration|time)[:\s]*(\d+)\s*(?:мин|min|м)?', text_lower)
+        if duration_match:
+            return int(duration_match.group(1))
 
         return 0
 
     def _find_calories(self, text: str) -> int:
         """
-        Ищет в тексте значение калорий с различными обозначениями:
-        kcal, cal, ккал, Калории.
-
-        Примеры: "320 kcal", "500 ккал".
-
-        :param text: Текст, полученный из OCR.
-        :return: Количество калорий или 0, если не найдено.
+        Ищет калории с поддержкой различных обозначений.
         """
-        match = re.search(
-            r'(\d+)\s*(?:kcal|cal|ккал|Калории|калорий)', text, re.IGNORECASE
-        )
-        if match:
-            try:
-                return int(match.group(1))
-            except ValueError:
-                return 0
+        text_lower = text.lower().replace(',', '').replace(' ', '')
+        
+        patterns = [
+            r'(\d+)\s*(?:kcal|ккал|калорий|калории|cal)',
+            r'(?:калории|калорий|calories)[:\s]*(\d+)',
+            r'(\d+)\s*ккал',
+            r'энергия[:\s]*(\d+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text_lower, re.IGNORECASE)
+            if match:
+                try:
+                    return int(match.group(1))
+                except ValueError:
+                    continue
+        
         return 0

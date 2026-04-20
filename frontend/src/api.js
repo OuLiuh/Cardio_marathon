@@ -31,6 +31,16 @@ export const fetchRaidState = async () => {
   }
 };
 
+export const scanWorkout = async (formData) => {
+  const res = await fetch(`${API_URL}/scan-workout`, {
+    method: 'POST',
+    body: formData
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.detail || 'OCR failed');
+  return json;
+};
+
 export const sendAttack = async (data) => {
   const res = await fetch(`${API_URL}/attack`, {
     method: 'POST',
