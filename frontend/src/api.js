@@ -80,13 +80,3 @@ export const updateUsername = async (userId, newName) => {
   if (!res.ok) throw new Error('Update failed');
   return res.json();
 };
-
-export const scanWorkout = async (formData) => {
-  const res = await fetch(`${API_URL}/scan-workout`, {
-    method: 'POST',
-    body: formData
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.detail || 'OCR failed');
-  return json;
-};
