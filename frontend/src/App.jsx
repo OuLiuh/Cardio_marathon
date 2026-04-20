@@ -16,7 +16,8 @@ import {
   getUser, 
   registerUser, 
   fetchShop, 
-  buyItem 
+  buyItem,
+  scanWorkout
 } from './api';
 import './App.css';
 
