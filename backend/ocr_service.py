@@ -66,6 +66,7 @@ class UniversalParser(BaseWorkoutParser):
         if not isinstance(image_bytes, bytes) or len(image_bytes) == 0:
             raise ValueError("image_bytes должен быть непустым объектом bytes")
 
+        raw_text = ""
         try:
             image = self._preprocess_image(image_bytes)
             
@@ -80,10 +81,11 @@ class UniversalParser(BaseWorkoutParser):
             
             logger.info(f"Распознанный текст для user {self.user_id}: {raw_text}")
         except pytesseract.TesseractNotFoundError:
-            raise RuntimeError("Tesseract не найден. Установите tesseract-ocr.")
+            logger.error("Tesseract не найден. Установите tesseract-ocr.")
+            raw_text = "ERROR: Tesseract not found"
         except Exception as e:
             logger.error(f"OCR ошибка: {e}", exc_info=True)
-            raise RuntimeError(f"Ошибка при обработке изображения: {e}")
+            raw_text = f"ERROR: {str(e)}"
 
         # Поиск метрик
         distance = self._find_distance(raw_text)
@@ -99,7 +101,7 @@ class UniversalParser(BaseWorkoutParser):
             duration_minutes=duration,
             calories=calories,
             avg_heart_rate=0,
-            raw_text=raw_text
+            raw_text=raw_text if raw_text else "Текст не распознан"
         )
 
     def _find_distance(self, text: str) -> float:

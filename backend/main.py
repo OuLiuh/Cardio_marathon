@@ -56,18 +56,24 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
         # 1. Валидация данных (Защита от 500 ошибки при 0 значениях)
         if workout_data.sport_type == "run":
             if workout_data.distance_km <= 0 or workout_data.duration_minutes <= 0:
+                detail_msg = (
+                    f"Данные бега не валидны. Расстояние: {workout_data.distance_km} км, "
+                    f"Время: {workout_data.duration_minutes} мин. "
+                    f"Пожалуйста, используйте более четкое фото."
+                )
+                if workout_data.raw_text:
+                    detail_msg += f"\n\n📄 Распознанный текст:\n{workout_data.raw_text}"
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        f"Данные бега не валидны. Расстояние: {workout_data.distance_km} км, "
-                        f"Время: {workout_data.duration_minutes} мин. "
-                        f"Пожалуйста, используйте более четкое фото."
-                    )
+                    detail=detail_msg
                 )
         elif workout_data.distance_km <= 0 and workout_data.duration_minutes <= 0 and workout_data.calories <= 0:
+            detail_msg = "Не удалось распознать данные тренировки. Попробуйте снова."
+            if workout_data.raw_text:
+                detail_msg += f"\n\n📄 Распознанный текст:\n{workout_data.raw_text}"
             raise HTTPException(
                 status_code=400,
-                detail="Не удалось распознать данные тренировки. Попробуйте снова."
+                detail=detail_msg
             )
 
         # 2. Получение данных

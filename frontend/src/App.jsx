@@ -254,7 +254,21 @@ function App() {
       setParsedData(result);
       setConfirmMode(true);
     } catch (e) {
-      setMessage(`❌ ${e.message}`);
+      // Парсим сообщение об ошибке: если есть распознанный текст, показываем его отдельно
+      const errorText = e.message || 'Ошибка';
+      const parts = errorText.split('\n\n📄 Распознанный текст:\n');
+      const mainError = parts[0];
+      const recognizedText = parts[1] || null;
+      
+      if (recognizedText) {
+        setMessage({
+          type: 'error',
+          main: mainError,
+          rawText: recognizedText
+        });
+      } else {
+        setMessage(`❌ ${mainError}`);
+      }
     } finally {
       setLoadingAction(false);
     }
@@ -312,7 +326,21 @@ function App() {
       setMessage(`✅ ${result.message}`);
       await loadRaidData();
     } catch (e) {
-      setMessage('❌ Ошибка: ' + e.message);
+      // Парсим сообщение об ошибке: если есть распознанный текст, показываем его отдельно
+      const errorText = e.message || 'Ошибка';
+      const parts = errorText.split('\n\n📄 Распознанный текст:\n');
+      const mainError = parts[0];
+      const recognizedText = parts[1] || null;
+      
+      if (recognizedText) {
+        setMessage({
+          type: 'error',
+          main: mainError,
+          rawText: recognizedText
+        });
+      } else {
+        setMessage(`❌ ${mainError}`);
+      }
     } finally {
       setLoadingAction(false);
     }
@@ -564,7 +592,25 @@ function App() {
               </div>
             )}
 
-            {message && <div className="game-message">{message}</div>}
+            {message && (
+              <div className="game-message">
+                {typeof message === 'object' ? (
+                  <>
+                    <div>❌ {message.main}</div>
+                    {message.rawText && (
+                      <details style={{ fontSize: '0.75em', color: '#aaa', marginTop: '8px' }}>
+                        <summary>📄 Показать распознанный текст</summary>
+                        <pre style={{ whiteSpace: 'pre-wrap', background: '#111', padding: '8px', borderRadius: '4px', marginTop: '5px', maxHeight: '150px', overflow: 'auto' }}>
+                          {message.rawText}
+                        </pre>
+                      </details>
+                    )}
+                  </>
+                ) : (
+                  message
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

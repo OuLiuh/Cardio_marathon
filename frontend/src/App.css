@@ -191,6 +191,22 @@ body {
   font-size: 0.9em;
 }
 
+.game-message details {
+  text-align: left;
+  margin-top: 10px;
+}
+
+.game-message details summary {
+  cursor: pointer;
+  color: #aaa;
+}
+
+.game-message details pre {
+  margin-top: 8px;
+  font-family: monospace;
+  font-size: 0.8em;
+}
+
 .debuff-notification {
   background: rgba(255, 215, 0, 0.15);
   color: #ffd700;
