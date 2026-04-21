@@ -4,6 +4,7 @@ import pytesseract
 from PIL import Image, ImageOps, ImageEnhance, ImageFilter
 from abc import ABC, abstractmethod
 from io import BytesIO
+from typing import List
 from schemas import WorkoutData
 
 # Настройка логирования
@@ -66,28 +67,43 @@ class UniversalParser(BaseWorkoutParser):
         if not isinstance(image_bytes, bytes) or len(image_bytes) == 0:
             raise ValueError("image_bytes должен быть непустым объектом bytes")
 
-        raw_text = ""
-        try:
-            image = self._preprocess_image(image_bytes)
-            
-            # Распознавание с разными конфигурациями для лучшего результата
-            raw_text = pytesseract.image_to_string(image, lang='rus+eng', config='--psm 6 --oem 1')
-            
-            # Дополнительная попытка с другим режимом
-            raw_text_alt = pytesseract.image_to_string(image, lang='rus+eng', config='--psm 11 --oem 1')
-            
-            # Объединяем результаты
-            raw_text = raw_text + "\n" + raw_text_alt
-            
-            logger.info(f"Распознанный текст для user {self.user_id}: {raw_text}")
-        except pytesseract.TesseractNotFoundError:
-            logger.error("Tesseract не найден. Установите tesseract-ocr.")
-            raw_text = "ERROR: Tesseract not found"
-        except Exception as e:
-            logger.error(f"OCR ошибка: {e}", exc_info=True)
-            raw_text = f"ERROR: {str(e)}"
+        ocr_chunks: List[str] = []
+        processed_image = None
 
-        # Поиск метрик
+        # 1) Предобработка
+        try:
+            processed_image = self._preprocess_image(image_bytes)
+        except Exception as e:
+            logger.error(f"Ошибка предобработки OCR: {e}", exc_info=True)
+            ocr_chunks.append(f"ERROR: preprocess failed: {str(e)}")
+
+        # 2) OCR в нескольких режимах (каждый отдельно, чтобы не терять текст)
+        if processed_image is not None:
+            ocr_attempts = [
+                ('--psm 6 --oem 1', 'psm6'),
+                ('--psm 11 --oem 1', 'psm11'),
+                ('--psm 4 --oem 1', 'psm4')
+            ]
+
+            for config, label in ocr_attempts:
+                try:
+                    text = pytesseract.image_to_string(processed_image, lang='rus+eng', config=config)
+                    if text and text.strip():
+                        ocr_chunks.append(f"[{label}]\n{text.strip()}")
+                    else:
+                        ocr_chunks.append(f"[{label}]\n(пустой результат)")
+                except pytesseract.TesseractNotFoundError:
+                    logger.error("Tesseract не найден. Установите tesseract-ocr.")
+                    ocr_chunks.append("ERROR: Tesseract not found")
+                    break
+                except Exception as e:
+                    logger.error(f"OCR ошибка ({label}): {e}", exc_info=True)
+                    ocr_chunks.append(f"ERROR ({label}): {str(e)}")
+
+        raw_text = "\n\n".join(ocr_chunks).strip() or "Текст не распознан"
+        logger.info(f"Распознанный текст для user {self.user_id}: {raw_text}")
+
+        # Поиск метрик по всему объединённому тексту
         distance = self._find_distance(raw_text)
         duration = self._find_duration(raw_text)
         calories = self._find_calories(raw_text)
@@ -101,7 +117,7 @@ class UniversalParser(BaseWorkoutParser):
             duration_minutes=duration,
             calories=calories,
             avg_heart_rate=0,
-            raw_text=raw_text if raw_text else "Текст не распознан"
+            raw_text=raw_text
         )
 
     def _find_distance(self, text: str) -> float:

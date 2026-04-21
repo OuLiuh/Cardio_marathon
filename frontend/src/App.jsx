@@ -197,7 +197,7 @@ function App() {
     haptic('selection');
     try {
       const res = await buyItem(currentUser.id, itemKey);
-      setCurrentUser(prev => ({ ...prev, gold: res.gold_left }));
+      setCurrentUser(prev => ({ ...prev, gold: res.new_gold ?? prev.gold }));
       const items = await fetchShop(currentUser.id);
       setShopItems(items);
       haptic('notification');

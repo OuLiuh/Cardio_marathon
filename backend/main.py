@@ -127,7 +127,7 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
         strategy = get_strategy(workout_data.sport_type)
         upgrades_result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))
         upgrades = upgrades_result.scalars().all()
-        upgrade_map = {upg.item_key: upg.level for upg in upgrades}
+        upgrade_map = {upg.upgrade_key: upg.level for upg in upgrades}
 
         calc_result = strategy.calculate(workout_data, upgrade_map, raid.traits)
         damage_to_deal = min(calc_result.damage, raid.current_hp)
@@ -287,7 +287,7 @@ async def get_shop(user_id: int, db: AsyncSession = Depends(get_db)):
     try:
         upgrades_result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user_id))
         upgrades = upgrades_result.scalars().all()
-        user_upgrades = {u.item_key: u.level for u in upgrades}
+        user_upgrades = {u.upgrade_key: u.level for u in upgrades}
         logger.info(f"User upgrades: {user_upgrades}")
         logger.info(f"SHOP_REGISTRY keys: {list(SHOP_REGISTRY.keys())}")
 
@@ -321,7 +321,7 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
     if not item_cfg: raise HTTPException(status_code=400, detail="Invalid item")
 
     upg_result = await db.execute(
-        select(UserUpgrade).where(UserUpgrade.user_id == user.id, UserUpgrade.item_key == request.item_key)
+        select(UserUpgrade).where(UserUpgrade.user_id == user.id, UserUpgrade.upgrade_key == request.item_key)
     )
     upgrade = upg_result.scalar_one_or_none()
     current_lvl = upgrade.level if upgrade else 0
@@ -330,7 +330,7 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=400, detail="Max level reached")
 
     # Проверка блокировки
-    user_upgrades = {u.item_key: u.level for u in (await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))).scalars().all()}
+    user_upgrades = {u.upgrade_key: u.level for u in (await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))).scalars().all()}
     if item_cfg.is_locked(user_upgrades):
         raise HTTPException(status_code=400, detail="Item is locked")
 
@@ -342,7 +342,7 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
     if upgrade:
         upgrade.level += 1
     else:
-        db.add(UserUpgrade(user_id=user.id, item_key=request.item_key, level=1))
+        db.add(UserUpgrade(user_id=user.id, upgrade_key=request.item_key, level=1))
 
     await db.commit()
     return {"message": "Success", "new_gold": user.gold}
