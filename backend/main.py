@@ -2,7 +2,9 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, Form
+from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, Form, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import pytz
@@ -16,7 +18,7 @@ from schemas import (
 )
 from mechanics import get_strategy
 from boss_factory import BossFactory
-from shop_config import SHOP_ITEMS
+from shop_config import SHOP_ITEMS, SHOP_REGISTRY
 from ocr_service import UniversalParser
 
 # Настройка логов
@@ -43,6 +45,38 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+# --- ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ВАЛИДАЦИИ ---
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Перехватывает ошибки валидации Pydantic и добавляет raw_text из тела запроса.
+    """
+    try:
+        body = await request.json()
+        raw_text = body.get('raw_text', '') if body else ''
+        
+        error_details = []
+        for error in exc.errors():
+            loc = ' -> '.join(str(x) for x in error.get('loc', []))
+            msg = error.get('msg', '')
+            error_details.append(f"{loc}: {msg}")
+        
+        detail_msg = "Ошибка валидации: " + "; ".join(error_details)
+        if raw_text:
+            detail_msg += f"\n\n📄 Распознанный текст:\n{raw_text}"
+        
+        return JSONResponse(
+            status_code=422,
+            content={"detail": detail_msg}
+        )
+    except Exception as e:
+        logger.error(f"Error in validation handler: {e}")
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(exc)}
+        )
 
 
 # --- API ENDPOINTS ---
@@ -254,16 +288,17 @@ async def get_shop(user_id: int, db: AsyncSession = Depends(get_db)):
     user_upgrades = {u.item_key: u.level for u in upgrades}
 
     shop_list = []
-    for key, item in SHOP_ITEMS.items():
+    for key, item in SHOP_REGISTRY.items():
         current_lvl = user_upgrades.get(key, 0)
-        is_maxed = current_lvl >= item["max_level"]
-        price = item["base_price"] * (current_lvl + 1) if not is_maxed else 0
+        is_maxed = current_lvl >= item.max_level
+        price = item.base_price * (current_lvl + 1) if not is_maxed else 0
+        is_locked = item.is_locked(user_upgrades)
 
         shop_list.append(ShopItemRead(
-            key=key, name=item["name"], description=item["description"],
-            sport_type=item["sport_type"], current_level=current_lvl,
-            max_level=item["max_level"], next_price=price,
-            is_locked=False, is_maxed=is_maxed
+            key=key, name=item.name, description=item.description,
+            sport_type=item.sport_type, current_level=current_lvl,
+            max_level=item.max_level, next_price=price,
+            is_locked=is_locked, is_maxed=is_maxed
         ))
     return shop_list
 
@@ -274,7 +309,7 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
     user = user_result.scalar_one_or_none()
     if not user: raise HTTPException(status_code=404, detail="User not found")
 
-    item_cfg = SHOP_ITEMS.get(request.item_key)
+    item_cfg = SHOP_REGISTRY.get(request.item_key)
     if not item_cfg: raise HTTPException(status_code=400, detail="Invalid item")
 
     upg_result = await db.execute(
@@ -283,10 +318,15 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
     upgrade = upg_result.scalar_one_or_none()
     current_lvl = upgrade.level if upgrade else 0
 
-    if current_lvl >= item_cfg["max_level"]:
+    if current_lvl >= item_cfg.max_level:
         raise HTTPException(status_code=400, detail="Max level reached")
 
-    price = item_cfg["base_price"] * (current_lvl + 1)
+    # Проверка блокировки
+    user_upgrades = {u.item_key: u.level for u in (await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))).scalars().all()}
+    if item_cfg.is_locked(user_upgrades):
+        raise HTTPException(status_code=400, detail="Item is locked")
+
+    price = item_cfg.base_price * (current_lvl + 1)
     if user.gold < price:
         raise HTTPException(status_code=400, detail="Not enough gold")
 

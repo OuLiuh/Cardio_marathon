@@ -179,7 +179,7 @@ function App() {
       setShopItems(items);
       setScreen('shop');
     } catch (e) {
-      alert("Ошибка магазина");
+      alert("Ошибка магазина: " + (e.message || 'Неизвестная ошибка'));
     } finally {
       setLoadingAction(false);
     }

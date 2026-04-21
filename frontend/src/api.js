@@ -56,7 +56,10 @@ export const sendAttack = async (data) => {
 
 export const fetchShop = async (userId) => {
     const res = await fetch(`${API_URL}/shop/${userId}`);
-    if (!res.ok) throw new Error('Shop error');
+    if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Shop error');
+    }
     return res.json();
 };
 
