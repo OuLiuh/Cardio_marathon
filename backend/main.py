@@ -18,7 +18,7 @@ from schemas import (
 )
 from mechanics import get_strategy
 from boss_factory import BossFactory
-from shop_config import SHOP_ITEMS, SHOP_REGISTRY
+from shop_config import SHOP_REGISTRY
 from ocr_service import UniversalParser
 
 # Настройка логов
@@ -283,24 +283,32 @@ async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db
 
 @app.get("/api/shop/{user_id}", response_model=List[ShopItemRead])
 async def get_shop(user_id: int, db: AsyncSession = Depends(get_db)):
-    upgrades_result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user_id))
-    upgrades = upgrades_result.scalars().all()
-    user_upgrades = {u.item_key: u.level for u in upgrades}
+    logger.info(f"Fetching shop for user {user_id}")
+    try:
+        upgrades_result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user_id))
+        upgrades = upgrades_result.scalars().all()
+        user_upgrades = {u.item_key: u.level for u in upgrades}
+        logger.info(f"User upgrades: {user_upgrades}")
+        logger.info(f"SHOP_REGISTRY keys: {list(SHOP_REGISTRY.keys())}")
 
-    shop_list = []
-    for key, item in SHOP_REGISTRY.items():
-        current_lvl = user_upgrades.get(key, 0)
-        is_maxed = current_lvl >= item.max_level
-        price = item.base_price * (current_lvl + 1) if not is_maxed else 0
-        is_locked = item.is_locked(user_upgrades)
+        shop_list = []
+        for key, item in SHOP_REGISTRY.items():
+            current_lvl = user_upgrades.get(key, 0)
+            is_maxed = current_lvl >= item.max_level
+            price = item.base_price * (current_lvl + 1) if not is_maxed else 0
+            is_locked = item.is_locked(user_upgrades)
 
-        shop_list.append(ShopItemRead(
-            key=key, name=item.name, description=item.description,
-            sport_type=item.sport_type, current_level=current_lvl,
-            max_level=item.max_level, next_price=price,
-            is_locked=is_locked, is_maxed=is_maxed
-        ))
-    return shop_list
+            shop_list.append(ShopItemRead(
+                key=key, name=item.name, description=item.description,
+                sport_type=item.sport_type, current_level=current_lvl,
+                max_level=item.max_level, next_price=price,
+                is_locked=is_locked, is_maxed=is_maxed
+            ))
+        logger.info(f"Shop list created: {len(shop_list)} items")
+        return shop_list
+    except Exception as e:
+        logger.error(f"Shop error: {e}", exc_info=True)
+        raise
 
 
 @app.post("/api/shop/buy")

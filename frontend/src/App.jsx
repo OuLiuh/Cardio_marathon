@@ -175,10 +175,13 @@ function App() {
     haptic('selection');
     setLoadingAction(true);
     try {
+      console.log('Fetching shop for user:', currentUser.id); // Отладка
       const items = await fetchShop(currentUser.id);
+      console.log('Shop items:', items); // Отладка
       setShopItems(items);
       setScreen('shop');
     } catch (e) {
+      console.error('Shop error:', e); // Отладка
       alert("Ошибка магазина: " + (e.message || 'Неизвестная ошибка'));
     } finally {
       setLoadingAction(false);
@@ -251,9 +254,11 @@ function App() {
 
     try {
       const result = await scanWorkout(formDataObj);
+      console.log('OCR result:', result); // Отладка
       setParsedData(result);
       setConfirmMode(true);
     } catch (e) {
+      console.error('OCR error:', e); // Отладка
       // Парсим сообщение об ошибке: если есть распознанный текст, показываем его отдельно
       const errorText = e.message || 'Ошибка';
       const parts = errorText.split('\n\n📄 Распознанный текст:\n');
@@ -281,14 +286,13 @@ function App() {
    */
   const handleConfirm = () => {
     haptic('notification');
-    const { raw_text, ...safeData } = parsedData;
-
-    // Стейт всё равно обновим (на всякий случай, если он нужен для UI)
-    setFormData(prev => ({ ...prev, ...safeData }));
+    console.log('Sending to attack:', parsedData); // Отладка
+    // Передаём ВСЕ данные включая raw_text
+    setFormData(prev => ({ ...prev, ...parsedData }));
     setShowAttackForm(false);
 
-    // Отправляем правильные данные СРАЗУ
-    handleAttack(safeData);
+    // Отправляем полные данные СРАЗУ (с raw_text)
+    handleAttack(parsedData);
   };
 
   // --- ПОВТОРНАЯ ЗАГРУЗКА ФОТО ---
@@ -315,6 +319,7 @@ function App() {
 
     // Если данные передали напрямую — используем их. Иначе берём из стейта.
     const payload = dataToSubmit || formData;
+    console.log('Attack payload:', payload); // Отладка
 
     try {
       const result = await sendAttack({ user_id: currentUser.id, ...payload });
@@ -326,8 +331,10 @@ function App() {
       setMessage(`✅ ${result.message}`);
       await loadRaidData();
     } catch (e) {
+      console.error('Attack error:', e); // Отладка
       // Парсим сообщение об ошибке: если есть распознанный текст, показываем его отдельно
       const errorText = e.message || 'Ошибка';
+      console.log('Error text:', errorText); // Отладка
       const parts = errorText.split('\n\n📄 Распознанный текст:\n');
       const mainError = parts[0];
       const recognizedText = parts[1] || null;
