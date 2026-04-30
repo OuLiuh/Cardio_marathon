@@ -31,14 +31,30 @@ export const fetchRaidState = async () => {
   }
 };
 
-export const scanWorkout = async (formData) => {
-  const res = await fetch(`${API_URL}/scan-workout`, {
-    method: 'POST',
-    body: formData
+export const scanWorkout = (formData) => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_URL}/scan-workout`, true);
+    
+    xhr.onload = () => {
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(json);
+        } else {
+          reject(new Error(json.detail || 'OCR failed'));
+        }
+      } catch (e) {
+        reject(new Error('Invalid JSON response'));
+      }
+    };
+    
+    xhr.onerror = () => {
+      reject(new Error('Network error during OCR. Please check your connection.'));
+    };
+    
+    xhr.send(formData);
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.detail || 'OCR failed');
-  return json;
 };
 
 export const sendAttack = async (data) => {

@@ -124,18 +124,18 @@ class UniversalParser(BaseWorkoutParser):
         """
         Ищет дистанцию с поддержкой различных форматов.
         """
-        text = text.lower().replace(',', '.').replace(' ', '')
+        text_clean = text.lower().replace(',', '.').replace(' ', '').replace('\n', '')
         
         # Паттерны: 5.2km, 10.5км, 3километра, 7.км
         patterns = [
-            r'(\d+(?:\.\d+)?)\s*(?:km|км|километр[аов]?)',
-            r'(\d+(?:\.\d+)?)\s*k',
+            r'(\d+(?:\.\d+)?)(?:km|км|километр[аов]?)',
+            r'(\d+(?:\.\d+)?)k',
             r'дистанция[:\s]*(\d+(?:\.\d+)?)',
             r'distance[:\s]*(\d+(?:\.\d+)?)',
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+            match = re.search(pattern, text_clean, re.IGNORECASE)
             if match:
                 try:
                     return float(match.group(1))
@@ -150,21 +150,21 @@ class UniversalParser(BaseWorkoutParser):
         """
         text_lower = text.lower()
         
-        # Формат ЧЧ:ММ:СС
-        time_match = re.search(r'(\d{1,2}):(\d{2}):(\d{2})', text)
+        # Формат ЧЧ:ММ:СС или ЧЧ.ММ.СС
+        time_match = re.search(r'(\d{1,2})[:.](\d{2})[:.](\d{2})', text)
         if time_match:
             hours, minutes, seconds = map(int, time_match.groups())
             return hours * 60 + minutes + (1 if seconds >= 30 else 0)
 
-        # Формат ММ:СС
-        time_match = re.search(r'(\d{1,3}):(\d{2})\b', text)
+        # Формат ММ:СС или ММ.СС
+        time_match = re.search(r'(\d{1,3})[:.](\d{2})\b', text)
         if time_match:
             minutes, seconds = map(int, time_match.groups())
             if minutes < 600:
                 return minutes + (1 if seconds >= 30 else 0)
 
-        # Поиск по ключевым словам: время, duration, time
-        duration_match = re.search(r'(?:время|duration|time)[:\s]*(\d+)\s*(?:мин|min|м)?', text_lower)
+        # Поиск по ключевым словам: время, duration, time, длительность
+        duration_match = re.search(r'(?:время|duration|time|длительность)[^\d]*(\d+)\s*(?:мин|min|м)?', text_lower)
         if duration_match:
             return int(duration_match.group(1))
 
@@ -174,17 +174,16 @@ class UniversalParser(BaseWorkoutParser):
         """
         Ищет калории с поддержкой различных обозначений.
         """
-        text_lower = text.lower().replace(',', '').replace(' ', '')
+        text_clean = text.lower().replace(',', '').replace(' ', '').replace('\n', '')
         
         patterns = [
-            r'(\d+)\s*(?:kcal|ккал|калорий|калории|cal)',
-            r'(?:калории|калорий|calories)[:\s]*(\d+)',
-            r'(\d+)\s*ккал',
-            r'энергия[:\s]*(\d+)',
+            r'(\d+)(?:kcal|ккал|калорий|калории|cal)',
+            r'(?:калории|калорий|calories|активныеккал|всегоккал)[^\d]*(\d+)',
+            r'энергия[^\d]*(\d+)',
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text_lower, re.IGNORECASE)
+            match = re.search(pattern, text_clean, re.IGNORECASE)
             if match:
                 try:
                     return int(match.group(1))
