@@ -125,48 +125,28 @@ class UniversalParser(BaseWorkoutParser):
         text_lower = text.lower()
         text_dot = text_lower.replace(',', '.')
         
-        # 1. Поиск явных указаний с "км" или "km" (с учетом возможных пробелов внутри числа)
-        # Например: "5 . 22 км" или "5 22 km"
-        match = re.search(r'(\d{1,2})[\s.]+(\d{1,2})\s*(?:km|км|k|к)\b', text_dot)
-        if match:
-            return float(f"{match.group(1)}.{match.group(2)}")
-            
-        # Стандартные "5.22 км"
-        match = re.search(r'(\d+(?:\.\d+)?)\s*(?:km|км|k|к)\b', text_dot)
-        if match:
-            return float(match.group(1))
-            
-        # 2. Поиск по ключевым словам
-        match = re.search(r'(?:дистанция|distance)[:\s]*(\d+(?:\.\d+)?)', text_dot)
-        if match:
-            return float(match.group(1))
-            
-        # 3. Специфичный паттерн для Mi Fitness (psm11), где км обрезается в "..."
+        # 1. Специфичный паттерн для Mi Fitness (psm11), где км обрезается в "..."
         # Например: "5,22..." -> "5.22"
         match = re.search(r'(\d+\.\d{1,2})\.{2,}', text_dot)
         if match:
             return float(match.group(1))
             
+        # 2. Поиск явных указаний с "км" или "km"
+        # Используем \b чтобы не захватить куски других слов
+        match = re.search(r'\b(\d+(?:\.\d+)?)\s*(?:km|км|k|к)\b', text_dot)
+        if match:
+            return float(match.group(1))
+            
+        # 3. Поиск по ключевым словам
+        match = re.search(r'(?:дистанция|distance)[:\s]*(\d+(?:\.\d+)?)', text_dot)
+        if match:
+            return float(match.group(1))
+            
         # 4. Поиск числа с плавающей точкой на отдельной строке (часто это самое крупное число - дистанция)
-        # Ищем строку, где только цифры и точка/запятая
         match = re.search(r'(?m)^\s*(\d+\.\d{1,2})\s*$', text_dot)
         if match:
             return float(match.group(1))
 
-        # 5. Fallback: удаляем все пробелы и ищем снова
-        text_clean = text_dot.replace(' ', '').replace('\n', '')
-        patterns = [
-            r'(\d+(?:\.\d+)?)(?:km|км|километр[аов]?)',
-            r'(\d+(?:\.\d+)?)k',
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, text_clean)
-            if match:
-                try:
-                    return float(match.group(1))
-                except ValueError:
-                    continue
-                    
         return 0.0
 
     def _find_duration(self, text: str) -> int:
@@ -175,23 +155,25 @@ class UniversalParser(BaseWorkoutParser):
         """
         text_lower = text.lower()
         
-        # Формат ЧЧ:ММ:СС или ЧЧ.ММ.СС
-        time_match = re.search(r'(\d{1,2})[:.](\d{2})[:.](\d{2})', text)
+        # 1. Формат ЧЧ:ММ:СС (строго с двоеточиями, чтобы не путать с датой 14.09.2025)
+        time_match = re.search(r'\b(\d{1,2}):(\d{2}):(\d{2})\b', text)
         if time_match:
             hours, minutes, seconds = map(int, time_match.groups())
             return hours * 60 + minutes + (1 if seconds >= 30 else 0)
 
-        # Формат ММ:СС или ММ.СС
-        time_match = re.search(r'(\d{1,3})[:.](\d{2})\b', text)
-        if time_match:
-            minutes, seconds = map(int, time_match.groups())
-            if minutes < 600:
-                return minutes + (1 if seconds >= 30 else 0)
-
-        # Поиск по ключевым словам: время, duration, time, длительность
+        # 2. Поиск по ключевым словам: время, duration, time, длительность
         duration_match = re.search(r'(?:время|duration|time|длительность)[^\d]*(\d+)\s*(?:мин|min|м)?', text_lower)
         if duration_match:
             return int(duration_match.group(1))
+
+        # 3. Формат ММ:СС (только если не нашли ЧЧ:ММ:СС)
+        # Ищем строго границы слова, чтобы не вытащить кусок из 00:37:59
+        time_match = re.search(r'\b(\d{1,3}):(\d{2})\b', text)
+        if time_match:
+            minutes, seconds = map(int, time_match.groups())
+            # Исключаем время суток (например 20:13) - обычно тренировки не длятся 20 часов
+            if minutes < 600:
+                return minutes + (1 if seconds >= 30 else 0)
 
         return 0
 
@@ -199,16 +181,23 @@ class UniversalParser(BaseWorkoutParser):
         """
         Ищет калории с поддержкой различных обозначений.
         """
-        text_clean = text.lower().replace(',', '').replace(' ', '').replace('\n', '')
+        text_lower = text.lower().replace(',', '.')
         
+        # Ищем все вхождения чисел перед "ккал" или "kcal"
+        # \b гарантирует, что мы не склеим 00:37:59 и 297
+        matches = re.findall(r'\b(\d+)\s*(?:kcal|ккал|калорий|калории|cal)\b', text_lower)
+        if matches:
+            # Если найдено несколько (например, Активные и Всего), берем максимальное (Всего ккал)
+            return max(map(int, matches))
+            
+        # Поиск по ключевым словам, если цифра идет ПОСЛЕ слова
         patterns = [
-            r'(\d+)(?:kcal|ккал|калорий|калории|cal)',
-            r'(?:калории|калорий|calories|активныеккал|всегоккал)[^\d]*(\d+)',
+            r'(?:калории|калорий|calories|активные\s*ккал|всего\s*ккал)[^\d]*(\d+)',
             r'энергия[^\d]*(\d+)',
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text_clean, re.IGNORECASE)
+            match = re.search(pattern, text_lower)
             if match:
                 try:
                     return int(match.group(1))
