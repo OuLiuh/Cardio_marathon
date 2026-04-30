@@ -37,15 +37,22 @@ export const scanWorkout = (formData) => {
     xhr.open('POST', `${API_URL}/scan-workout`, true);
     
     xhr.onload = () => {
+      let json;
       try {
-        const json = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(json);
-        } else {
-          reject(new Error(json.detail || 'OCR failed'));
-        }
+        json = JSON.parse(xhr.responseText);
       } catch (e) {
-        reject(new Error('Invalid JSON response'));
+        // Если сервер вернул не JSON (например, HTML с ошибкой 413 Payload Too Large от Nginx)
+        console.error('Non-JSON response:', xhr.responseText);
+        if (xhr.status === 413) {
+          return reject(new Error('Файл слишком большой. Пожалуйста, сожмите фото.'));
+        }
+        return reject(new Error(`Ошибка сервера (${xhr.status}). Попробуйте позже.`));
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(json);
+      } else {
+        reject(new Error(json.detail || 'OCR failed'));
       }
     };
     

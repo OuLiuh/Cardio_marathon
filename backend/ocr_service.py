@@ -1,7 +1,7 @@
 import re
 import logging
 import pytesseract
-from PIL import Image, ImageOps, ImageEnhance, ImageFilter
+from PIL import Image, ImageOps, ImageEnhance, ImageFilter, ImageStat
 from abc import ABC, abstractmethod
 from io import BytesIO
 from typing import List
@@ -30,6 +30,12 @@ class BaseWorkoutParser(ABC):
             
             # Конвертируем в градации серого
             image = image.convert('L')
+            
+            # Определяем, темная ли тема (если средняя яркость меньше 127)
+            # Tesseract значительно лучше работает с черным текстом на белом фоне
+            stat = ImageStat.Stat(image)
+            if stat.mean[0] < 127:
+                image = ImageOps.invert(image)
             
             # Увеличиваем размер для лучшего распознавания
             image = image.resize((image.width * 2, image.height * 2), Image.Resampling.LANCZOS)
@@ -124,24 +130,50 @@ class UniversalParser(BaseWorkoutParser):
         """
         Ищет дистанцию с поддержкой различных форматов.
         """
-        text_clean = text.lower().replace(',', '.').replace(' ', '').replace('\n', '')
+        text_lower = text.lower()
+        text_dot = text_lower.replace(',', '.')
         
-        # Паттерны: 5.2km, 10.5км, 3километра, 7.км
+        # 1. Поиск явных указаний с "км" или "km" (с учетом возможных пробелов внутри числа)
+        # Например: "5 . 22 км" или "5 22 km"
+        match = re.search(r'(\d{1,2})[\s.]+(\d{1,2})\s*(?:km|км|k|к)\b', text_dot)
+        if match:
+            return float(f"{match.group(1)}.{match.group(2)}")
+            
+        # Стандартные "5.22 км"
+        match = re.search(r'(\d+(?:\.\d+)?)\s*(?:km|км|k|к)\b', text_dot)
+        if match:
+            return float(match.group(1))
+            
+        # 2. Поиск по ключевым словам
+        match = re.search(r'(?:дистанция|distance)[:\s]*(\d+(?:\.\d+)?)', text_dot)
+        if match:
+            return float(match.group(1))
+            
+        # 3. Агрессивный поиск для разорванных цифр (как в psm6: "5 2 2")
+        # Если мы видим одну или две цифры, пробел, цифру, пробел, цифру - это очень похоже на дистанцию.
+        match = re.search(r'\b([1-9]\d?)\s+(\d)\s+(\d)\b', text)
+        if match:
+            return float(f"{match.group(1)}.{match.group(2)}{match.group(3)}")
+            
+        # 4. Поиск просто "5 22" (без км), если это самое начало или отдельная строка
+        match = re.search(r'(?m)^([1-9]\d?)[\s.,]+(\d{2})$', text)
+        if match:
+            return float(f"{match.group(1)}.{match.group(2)}")
+
+        # 5. Fallback: удаляем все пробелы и ищем снова
+        text_clean = text_dot.replace(' ', '').replace('\n', '')
         patterns = [
             r'(\d+(?:\.\d+)?)(?:km|км|километр[аов]?)',
             r'(\d+(?:\.\d+)?)k',
-            r'дистанция[:\s]*(\d+(?:\.\d+)?)',
-            r'distance[:\s]*(\d+(?:\.\d+)?)',
         ]
-        
         for pattern in patterns:
-            match = re.search(pattern, text_clean, re.IGNORECASE)
+            match = re.search(pattern, text_clean)
             if match:
                 try:
                     return float(match.group(1))
                 except ValueError:
                     continue
-        
+                    
         return 0.0
 
     def _find_duration(self, text: str) -> int:
