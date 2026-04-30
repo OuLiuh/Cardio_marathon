@@ -83,28 +83,20 @@ class UniversalParser(BaseWorkoutParser):
             logger.error(f"Ошибка предобработки OCR: {e}", exc_info=True)
             ocr_chunks.append(f"ERROR: preprocess failed: {str(e)}")
 
-        # 2) OCR в нескольких режимах (каждый отдельно, чтобы не терять текст)
+        # 2) OCR в одном режиме для ускорения (psm 11 показал лучшие результаты)
         if processed_image is not None:
-            ocr_attempts = [
-                ('--psm 6 --oem 1', 'psm6'),
-                ('--psm 11 --oem 1', 'psm11'),
-                ('--psm 4 --oem 1', 'psm4')
-            ]
-
-            for config, label in ocr_attempts:
-                try:
-                    text = pytesseract.image_to_string(processed_image, lang='rus+eng', config=config)
-                    if text and text.strip():
-                        ocr_chunks.append(f"[{label}]\n{text.strip()}")
-                    else:
-                        ocr_chunks.append(f"[{label}]\n(пустой результат)")
-                except pytesseract.TesseractNotFoundError:
-                    logger.error("Tesseract не найден. Установите tesseract-ocr.")
-                    ocr_chunks.append("ERROR: Tesseract not found")
-                    break
-                except Exception as e:
-                    logger.error(f"OCR ошибка ({label}): {e}", exc_info=True)
-                    ocr_chunks.append(f"ERROR ({label}): {str(e)}")
+            try:
+                text = pytesseract.image_to_string(processed_image, lang='rus+eng', config='--psm 11 --oem 1')
+                if text and text.strip():
+                    ocr_chunks.append(f"[psm11]\n{text.strip()}")
+                else:
+                    ocr_chunks.append("[psm11]\n(пустой результат)")
+            except pytesseract.TesseractNotFoundError:
+                logger.error("Tesseract не найден. Установите tesseract-ocr.")
+                ocr_chunks.append("ERROR: Tesseract not found")
+            except Exception as e:
+                logger.error(f"OCR ошибка: {e}", exc_info=True)
+                ocr_chunks.append(f"ERROR: {str(e)}")
 
         raw_text = "\n\n".join(ocr_chunks).strip() or "Текст не распознан"
         logger.info(f"Распознанный текст для user {self.user_id}: {raw_text}")
@@ -149,16 +141,17 @@ class UniversalParser(BaseWorkoutParser):
         if match:
             return float(match.group(1))
             
-        # 3. Агрессивный поиск для разорванных цифр (как в psm6: "5 2 2")
-        # Если мы видим одну или две цифры, пробел, цифру, пробел, цифру - это очень похоже на дистанцию.
-        match = re.search(r'\b([1-9]\d?)\s+(\d)\s+(\d)\b', text)
+        # 3. Специфичный паттерн для Mi Fitness (psm11), где км обрезается в "..."
+        # Например: "5,22..." -> "5.22"
+        match = re.search(r'(\d+\.\d{1,2})\.{2,}', text_dot)
         if match:
-            return float(f"{match.group(1)}.{match.group(2)}{match.group(3)}")
+            return float(match.group(1))
             
-        # 4. Поиск просто "5 22" (без км), если это самое начало или отдельная строка
-        match = re.search(r'(?m)^([1-9]\d?)[\s.,]+(\d{2})$', text)
+        # 4. Поиск числа с плавающей точкой на отдельной строке (часто это самое крупное число - дистанция)
+        # Ищем строку, где только цифры и точка/запятая
+        match = re.search(r'(?m)^\s*(\d+\.\d{1,2})\s*$', text_dot)
         if match:
-            return float(f"{match.group(1)}.{match.group(2)}")
+            return float(match.group(1))
 
         # 5. Fallback: удаляем все пробелы и ищем снова
         text_clean = text_dot.replace(' ', '').replace('\n', '')
