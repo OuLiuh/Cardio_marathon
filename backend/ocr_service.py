@@ -73,7 +73,7 @@ class UniversalParser(BaseWorkoutParser):
         }
 
         payload = {
-            "model": "openai/gpt-4o-mini", # Можно заменить на google/gemini-2.5-flash
+            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", # Можно заменить на google/gemini-2.5-flash
             "messages": [
                 {
                     "role": "user",
