@@ -190,6 +190,7 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
                 if p.id == user.id:
                     gold_gain += 50
 
+            # Создаем нового босса
             await BossFactory.create_random_boss(db)
 
         await db.commit()

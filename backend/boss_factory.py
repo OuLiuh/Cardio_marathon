@@ -49,6 +49,19 @@ class BossFactory:
         return int(base_pool * multiplier)
 
     @staticmethod
+    async def create_random_boss(db) -> Raid:
+        from sqlalchemy import select, func
+        from models import User
+        
+        # Получаем количество игроков для расчета HP
+        result = await db.execute(select(func.count(User.id)))
+        total_users = result.scalar() or 1
+        
+        new_raid = BossFactory.create_boss(total_users)
+        db.add(new_raid)
+        return new_raid
+
+    @staticmethod
     def create_boss(total_players: int) -> Raid:
         # 1. Определяем тип босса (шансы)
         roll = random.random()
