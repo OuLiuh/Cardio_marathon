@@ -168,7 +168,10 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
             user_id=user.id,
             damage=damage_to_deal,
             sport_type=workout_data.sport_type,
-            message=msg
+            gold_earned=gold_gain,
+            xp_earned=xp_gain,
+            is_critical=calc_result.is_crit,
+            is_miss=calc_result.is_miss
         )
         db.add(new_log)
         await db.flush()
@@ -234,7 +237,7 @@ async def get_raid_state(db: AsyncSession = Depends(get_db)):
             damage=log.damage,
             sport_type=log.sport_type,
             created_at=log.created_at,
-            message=log.message
+            message=f"Удар на {log.damage}!" if log.damage > 0 else "💨 Босс УВЕРНУЛСЯ!"
         ) for log, username in logs_result
     ]
 
