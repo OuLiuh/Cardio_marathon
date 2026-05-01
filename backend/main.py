@@ -124,18 +124,28 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
             await db.refresh(raid)
 
         # 3. Расчет урона
-        strategy = get_strategy(workout_data.sport_type)
+        strategy_class = get_strategy(workout_data.sport_type)
         upgrades_result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))
         upgrades = upgrades_result.scalars().all()
         upgrade_map = {upg.upgrade_key: upg.level for upg in upgrades}
 
-        calc_result = strategy.calculate(workout_data, upgrade_map, raid.traits)
+        strategy = strategy_class(
+            data=workout_data,
+            user_level=user.level,
+            raid_debuffs=raid.active_debuffs or {},
+            boss_traits=raid.traits or {},
+            user_upgrades=upgrade_map
+        )
+        calc_result = strategy.calculate()
         damage_to_deal = min(calc_result.damage, raid.current_hp)
+
+        xp_gain = 10 if calc_result.is_miss else 100
+        gold_gain = 0
 
         # 4. Обновление состояния
         raid.current_hp -= damage_to_deal
-        user.xp += calc_result.xp_earned
-        user.gold += calc_result.gold_earned
+        user.xp += xp_gain
+        user.gold += gold_gain
 
         # Уровень пользователя
         new_level = (user.xp // 1000) + 1
@@ -174,6 +184,8 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
             )
             for p in participants_result.scalars().all():
                 p.gold += 50
+                if p.id == user.id:
+                    gold_gain += 50
 
             await BossFactory.create_random_boss(db)
 
@@ -181,8 +193,10 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
 
         return AttackResult(
             damage_dealt=damage_to_deal,
-            xp_earned=calc_result.xp_earned,
-            gold_earned=calc_result.gold_earned,
+            xp_earned=xp_gain,
+            gold_earned=gold_gain,
+            is_critical=calc_result.is_crit,
+            new_boss_hp=raid.current_hp,
             message=msg
         )
 
