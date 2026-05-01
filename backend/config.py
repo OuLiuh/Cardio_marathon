@@ -20,6 +20,7 @@ DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTG
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 WEBAPP_URL = os.getenv('WEBAPP_URL')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
 # Проверка на обязательные переменные
 if not POSTGRES_USER:

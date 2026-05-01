@@ -5,6 +5,5 @@ asyncpg
 pydantic
 python-dotenv
 pytz
-pytesseract
-Pillow
 python-multipart
+httpx

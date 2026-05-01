@@ -369,7 +369,7 @@ async def scan_workout(
         logger.info(f"Размер изображения: {len(image_bytes)} байт")
         
         parser = UniversalParser(user_id=user_id, sport_type=sport_type)
-        workout_data = parser.parse_image(image_bytes)
+        workout_data = await parser.parse_image(image_bytes)
         
         logger.info(f"OCR успешен: {workout_data}")
         return workout_data

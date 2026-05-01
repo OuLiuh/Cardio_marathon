@@ -1,16 +1,16 @@
 import re
 import logging
-import pytesseract
-from PIL import Image, ImageOps, ImageEnhance, ImageFilter, ImageStat
+import base64
+import json
+import httpx
 from abc import ABC, abstractmethod
-from io import BytesIO
-from typing import List
+from typing import Optional
 from schemas import WorkoutData
+from config import OPENROUTER_API_KEY
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 class BaseWorkoutParser(ABC):
     """
@@ -21,96 +21,118 @@ class BaseWorkoutParser(ABC):
         self.user_id = user_id
         self.sport_type = sport_type
 
-    def _preprocess_image(self, image_bytes: bytes) -> Image.Image:
-        """
-        Улучшенная предобработка изображения для OCR.
-        """
-        try:
-            image = Image.open(BytesIO(image_bytes))
-            
-            # Конвертируем в градации серого
-            image = image.convert('L')
-            
-            # Определяем, темная ли тема (если средняя яркость меньше 127)
-            # Tesseract значительно лучше работает с черным текстом на белом фоне
-            stat = ImageStat.Stat(image)
-            if stat.mean[0] < 127:
-                image = ImageOps.invert(image)
-            
-            # Увеличиваем размер для лучшего распознавания
-            image = image.resize((image.width * 2, image.height * 2), Image.Resampling.LANCZOS)
-            
-            # Увеличиваем контрастность
-            enhancer = ImageEnhance.Contrast(image)
-            image = enhancer.enhance(2.0)
-            
-            # Увеличиваем яркость
-            enhancer = ImageEnhance.Brightness(image)
-            image = enhancer.enhance(1.2)
-            
-            # Применяем резкость
-            enhancer = ImageEnhance.Sharpness(image)
-            image = enhancer.enhance(1.5)
-            
-            # Бинаризация (черно-белое)
-            image = image.point(lambda x: 0 if x < 128 else 255, mode='1')
-            
-            return image
-        except Exception as e:
-            raise ValueError(f"Не удалось загрузить изображение: {e}")
-
     @abstractmethod
-    def parse_image(self, image_bytes: bytes) -> WorkoutData:
+    async def parse_image(self, image_bytes: bytes) -> WorkoutData:
         pass
-
 
 class UniversalParser(BaseWorkoutParser):
     """
-    Универсальный парсер с улучшенным поиском метрик.
+    Парсер с использованием LLM (OpenRouter) для распознавания метрик.
     """
 
-    def parse_image(self, image_bytes: bytes) -> WorkoutData:
+    async def parse_image(self, image_bytes: bytes) -> WorkoutData:
         if not isinstance(image_bytes, bytes) or len(image_bytes) == 0:
             raise ValueError("image_bytes должен быть непустым объектом bytes")
 
-        ocr_chunks: List[str] = []
-        processed_image = None
+        if not OPENROUTER_API_KEY:
+            logger.error("OPENROUTER_API_KEY не установлен!")
+            raise ValueError("Отсутствует ключ API для OpenRouter")
 
-        # 1) Предобработка
+        # Кодируем изображение в base64
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+
+        # Формируем промпт в зависимости от вида спорта
+        sport_name = "тренировки"
+        if self.sport_type == "run":
+            sport_name = "бега"
+        elif self.sport_type == "cycling":
+            sport_name = "велосипеда"
+        elif self.sport_type == "walking":
+            sport_name = "ходьбы"
+
+        prompt = f"""
+Проанализируй этот скриншот {sport_name}.
+Найди следующие данные:
+1. Дистанция (в километрах)
+2. Время (в минутах, округли до целого)
+3. Калории (в ккал)
+
+Верни результат СТРОГО в таком формате (без лишних слов и символов):
+Дистанция <число> км
+Время <число> мин
+Каллории <число>
+
+Если какое-то значение не найдено, напиши 0.
+"""
+
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://cardiomarathon.com", # Замените на ваш URL
+            "X-Title": "Cardio Marathon"
+        }
+
+        payload = {
+            "model": "openai/gpt-4o-mini", # Можно заменить на google/gemini-2.5-flash
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            "temperature": 0.1
+        }
+
+        raw_text = "Текст не распознан"
+        distance = 0.0
+        duration = 0
+        calories = 0
+
         try:
-            processed_image = self._preprocess_image(image_bytes)
-        except Exception as e:
-            logger.error(f"Ошибка предобработки OCR: {e}", exc_info=True)
-            ocr_chunks.append(f"ERROR: preprocess failed: {str(e)}")
-
-        # 2) OCR в одном режиме для ускорения (psm 11 показал лучшие результаты)
-        if processed_image is not None:
-            try:
-                text = pytesseract.image_to_string(processed_image, lang='rus+eng', config='--psm 11 --oem 1')
-                if text and text.strip():
-                    ocr_chunks.append(f"[psm11]\n{text.strip()}")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                response.raise_for_status()
+                result = response.json()
+                
+                if "choices" in result and len(result["choices"]) > 0:
+                    raw_text = result["choices"][0]["message"]["content"].strip()
+                    logger.info(f"Ответ OpenRouter для user {self.user_id}: \n{raw_text}")
+                    
+                    # Парсим ответ
+                    distance = self._parse_distance(raw_text)
+                    duration = self._parse_duration(raw_text)
+                    calories = self._parse_calories(raw_text)
                 else:
-                    ocr_chunks.append("[psm11]\n(пустой результат)")
-            except pytesseract.TesseractNotFoundError:
-                logger.error("Tesseract не найден. Установите tesseract-ocr.")
-                ocr_chunks.append("ERROR: Tesseract not found")
-            except Exception as e:
-                logger.error(f"OCR ошибка: {e}", exc_info=True)
-                ocr_chunks.append(f"ERROR: {str(e)}")
+                    logger.error(f"Неожиданный ответ от OpenRouter: {result}")
+                    raw_text = f"Ошибка API: {result}"
 
-        raw_text = "\n\n".join(ocr_chunks).strip() or "Текст не распознан"
-        logger.info(f"Распознанный текст для user {self.user_id}: {raw_text}")
-
-        # Поиск метрик по всему объединённому тексту
-        distance = self._find_distance(raw_text)
-        duration = self._find_duration(raw_text)
-        calories = self._find_calories(raw_text)
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP ошибка при обращении к OpenRouter: {e.response.text}")
+            raw_text = f"HTTP ошибка API: {e.response.status_code}"
+        except Exception as e:
+            logger.error(f"Ошибка при обращении к OpenRouter: {e}", exc_info=True)
+            raw_text = f"Ошибка: {str(e)}"
 
         logger.info(f"Распознанные метрики: distance={distance}km, duration={duration}min, calories={calories}kcal")
 
         return WorkoutData(
             user_id=self.user_id,
-            sport_type=self.sport_type,  # Используем указанный пользователем тип
+            sport_type=self.sport_type,
             distance_km=distance,
             duration_minutes=duration,
             calories=calories,
@@ -118,88 +140,32 @@ class UniversalParser(BaseWorkoutParser):
             raw_text=raw_text
         )
 
-    def _find_distance(self, text: str) -> float:
-        """
-        Ищет дистанцию с поддержкой различных форматов.
-        """
-        text_lower = text.lower()
-        text_dot = text_lower.replace(',', '.')
-        
-        # 1. Поиск числа с плавающей точкой на отдельной строке (часто это самое крупное число - дистанция)
-        # В Mi Fitness км часто обрезается, оставляя "5.22..." или "4.3."
-        match = re.search(r'(?m)^\s*(\d+\.\d{1,2})\.*\s*$', text_dot)
+    def _parse_distance(self, text: str) -> float:
+        match = re.search(r'Дистанция\s+([\d.,]+)\s*км', text, re.IGNORECASE)
         if match:
-            return float(match.group(1))
-            
-        # 2. Поиск явных указаний с "км" или "km"
-        # Используем \b чтобы не захватить куски других слов
-        match = re.search(r'\b(\d+(?:\.\d+)?)\s*(?:km|км|k|к)\b', text_dot)
-        if match:
-            return float(match.group(1))
-            
-        # 3. Поиск по ключевым словам
-        match = re.search(r'(?:дистанция|distance)[:\s]*(\d+(?:\.\d+)?)', text_dot)
-        if match:
-            return float(match.group(1))
-
+            try:
+                return float(match.group(1).replace(',', '.'))
+            except ValueError:
+                pass
         return 0.0
 
-    def _find_duration(self, text: str) -> int:
-        """
-        Ищет продолжительность в различных форматах.
-        """
-        text_lower = text.lower()
-        
-        # 1. Формат ЧЧ:ММ:СС (строго с двоеточиями, чтобы не путать с датой 14.09.2025)
-        time_match = re.search(r'\b(\d{1,2}):(\d{2}):(\d{2})\b', text)
-        if time_match:
-            hours, minutes, seconds = map(int, time_match.groups())
-            # Округление в меньшую сторону (отбрасываем секунды)
-            return hours * 60 + minutes
-
-        # 2. Поиск по ключевым словам: время, duration, time, длительность
-        duration_match = re.search(r'(?:время|duration|time|длительность)[^\d]*(\d+)\s*(?:мин|min|м)?', text_lower)
-        if duration_match:
-            return int(duration_match.group(1))
-
-        # 3. Формат ММ:СС (только если не нашли ЧЧ:ММ:СС)
-        # Ищем строго границы слова, чтобы не вытащить кусок из 00:37:59
-        time_match = re.search(r'\b(\d{1,3}):(\d{2})\b', text)
-        if time_match:
-            minutes, seconds = map(int, time_match.groups())
-            # Исключаем время суток (например 20:13) - обычно тренировки не длятся 20 часов
-            if minutes < 600:
-                # Округление в меньшую сторону
-                return minutes
-
+    def _parse_duration(self, text: str) -> int:
+        match = re.search(r'Время\s+(\d+)\s*мин', text, re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                pass
         return 0
 
-    def _find_calories(self, text: str) -> int:
-        """
-        Ищет калории с поддержкой различных обозначений.
-        """
-        # Заменяем частую ошибку OCR: '2/2' -> '272'
-        text_lower = text.lower().replace(',', '.').replace('/', '7')
-        
-        # Ищем все вхождения чисел перед "ккал" или "kcal"
-        # \b гарантирует, что мы не склеим 00:37:59 и 297
-        matches = re.findall(r'\b(\d+)\s*(?:kcal|ккал|калорий|калории|cal)\b', text_lower)
-        if matches:
-            # Если найдено несколько (например, Активные и Всего), берем максимальное (Всего ккал)
-            return max(map(int, matches))
-            
-        # Поиск по ключевым словам, если цифра идет ПОСЛЕ слова
-        patterns = [
-            r'(?:калории|калорий|calories|активные\s*ккал|всего\s*ккал)[^\d]*(\d+)',
-            r'энергия[^\d]*(\d+)',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text_lower)
-            if match:
-                try:
-                    return int(match.group(1))
-                except ValueError:
-                    continue
-        
+    def _parse_calories(self, text: str) -> int:
+        match = re.search(r'Каллории\s+(\d+)', text, re.IGNORECASE)
+        if not match:
+            # На случай если нейросеть напишет с одной "л"
+            match = re.search(r'Калории\s+(\d+)', text, re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                pass
         return 0
