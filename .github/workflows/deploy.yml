@@ -3,7 +3,7 @@ name: Deploy to VPS
 on:
   push:
     branches:
-      - main  # Скрипт сработает только при пуше в основную ветку
+      - main
 
 jobs:
   deploy:
@@ -16,13 +16,11 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # Переходим в папку с проектом
-            cd app  # Путь к приложению на сервере
-            
-            # Получаем последние изменения из репозитория и обновляем код
+            cd app
             git pull origin main
-            
-            # Пересоздаём контейнеры. -v сбрасывает volume БД (нужно после смены схемы users).
-            # Когда данные снова станут ценными — убери флаг -v.
-            docker compose down -v
-            RESET_DB=1 docker compose up -d --build
+
+            # Не форсим pull базовых образов — Docker Hub часто отвечает 429.
+            # bot больше не в compose; собираем только нужные сервисы.
+            docker compose down
+            docker compose build --pull=false backend frontend
+            RESET_DB=1 docker compose up -d
