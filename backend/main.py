@@ -1,10 +1,12 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List
+
 from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, Form, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -12,15 +14,17 @@ from database import init_models, get_db
 from models import User, Raid, RaidLog, UserUpgrade
 from schemas import (
     WorkoutData, AttackResult, RaidState, LogDisplay,
-    UserRead, UserCreate, RaidParticipant,
+    UserRead, UserCreate, UserLogin, TokenResponse, RaidParticipant,
     ShopItemRead, ShopBuyRequest
+)
+from auth import (
+    hash_password, verify_password, create_access_token, get_current_user
 )
 from mechanics import get_strategy
 from boss_factory import BossFactory
 from shop_config import SHOP_REGISTRY
 from ocr_service import UniversalParser
 
-# Настройка логов
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -45,27 +49,31 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# --- ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ВАЛИДАЦИИ ---
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """
-    Перехватывает ошибки валидации Pydantic и добавляет raw_text из тела запроса.
-    """
     try:
         body = await request.json()
         raw_text = body.get('raw_text', '') if body else ''
-        
+
         error_details = []
         for error in exc.errors():
             loc = ' -> '.join(str(x) for x in error.get('loc', []))
             msg = error.get('msg', '')
             error_details.append(f"{loc}: {msg}")
-        
+
         detail_msg = "Ошибка валидации: " + "; ".join(error_details)
         if raw_text:
             detail_msg += f"\n\n📄 Распознанный текст:\n{raw_text}"
-        
+
         return JSONResponse(
             status_code=422,
             content={"detail": detail_msg}
@@ -78,15 +86,57 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         )
 
 
-# --- API ENDPOINTS ---
+# --- AUTH ---
+
+@app.post("/api/auth/register", response_model=TokenResponse)
+async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
+    username = user_data.username.strip()
+    if len(username) < 2:
+        raise HTTPException(status_code=400, detail="Имя должно быть не короче 2 символов")
+
+    existing = await db.execute(select(User).where(User.username == username))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Такое имя уже занято")
+
+    user = User(
+        username=username,
+        password_hash=hash_password(user_data.password),
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    token = create_access_token(user.id, user.username)
+    return TokenResponse(access_token=token, user=user)
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login(credentials: UserLogin, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(User).where(User.username == credentials.username.strip())
+    )
+    user = result.scalar_one_or_none()
+    if not user or not verify_password(credentials.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+
+    token = create_access_token(user.id, user.username)
+    return TokenResponse(access_token=token, user=user)
+
+
+@app.get("/api/user/me", response_model=UserRead)
+async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+# --- ATTACK ---
 
 @app.post("/api/attack", response_model=AttackResult)
-async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(get_db)):
-    """
-    Обработка атаки с защитой от пустых данных и ZeroDivisionError.
-    """
+async def process_attack(
+    workout_data: WorkoutData,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
-        # 1. Валидация данных (Защита от 500 ошибки при 0 значениях)
         if workout_data.sport_type == "run":
             if workout_data.distance_km <= 0 or workout_data.duration_minutes <= 0:
                 detail_msg = (
@@ -96,24 +146,14 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
                 )
                 if workout_data.raw_text:
                     detail_msg += f"\n\n📄 Распознанный текст:\n{workout_data.raw_text}"
-                raise HTTPException(
-                    status_code=400,
-                    detail=detail_msg
-                )
+                raise HTTPException(status_code=400, detail=detail_msg)
         elif workout_data.distance_km <= 0 and workout_data.duration_minutes <= 0 and workout_data.calories <= 0:
             detail_msg = "Не удалось распознать данные тренировки. Попробуйте снова."
             if workout_data.raw_text:
                 detail_msg += f"\n\n📄 Распознанный текст:\n{workout_data.raw_text}"
-            raise HTTPException(
-                status_code=400,
-                detail=detail_msg
-            )
+            raise HTTPException(status_code=400, detail=detail_msg)
 
-        # 2. Получение данных
-        user_result = await db.execute(select(User).where(User.id == workout_data.user_id))
-        user = user_result.scalar_one_or_none()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+        user = current_user
 
         raid_result = await db.execute(select(Raid).where(Raid.is_active == True))
         raid = raid_result.scalar_one_or_none()
@@ -122,7 +162,6 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
             await db.commit()
             await db.refresh(raid)
 
-        # 3. Расчет урона
         strategy_class = get_strategy(workout_data.sport_type)
         upgrades_result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))
         upgrades = upgrades_result.scalars().all()
@@ -141,17 +180,14 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
         xp_gain = 10 if calc_result.is_miss else 100
         gold_gain = 0
 
-        # 4. Обновление состояния
         raid.current_hp -= damage_to_deal
         user.xp += xp_gain
         user.gold += gold_gain
 
-        # Уровень пользователя
         new_level = (user.xp // 1000) + 1
         if new_level > user.level:
             user.level = new_level
 
-        # Текст лога
         msg = f"Удар на {damage_to_deal}!"
         if calc_result.is_miss:
             msg = "💨 Босс УВЕРНУЛСЯ!"
@@ -161,7 +197,6 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
             else:
                 msg = f"⚔️ Нанесено {damage_to_deal} урона."
 
-        # Запись лога
         new_log = RaidLog(
             raid_id=raid.id,
             user_id=user.id,
@@ -175,7 +210,6 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
         db.add(new_log)
         await db.flush()
 
-        # 5. Проверка победы
         if raid.current_hp <= 0:
             raid.current_hp = 0
             raid.is_active = False
@@ -189,7 +223,6 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
                 if p.id == user.id:
                     gold_gain += 50
 
-            # Создаем нового босса
             await BossFactory.create_random_boss(db)
 
         await db.commit()
@@ -211,9 +244,9 @@ async def process_attack(workout_data: WorkoutData, db: AsyncSession = Depends(g
         raise HTTPException(status_code=500, detail="Ошибка сервера при обработке атаки")
 
 
-# --- ИСПРАВЛЕННЫЕ ПУТИ (совместимость с фронтендом) ---
+# --- RAID ---
 
-@app.get("/api/raid/state")  # Базовый путь для состояния
+@app.get("/api/raid/state")
 async def get_raid_state(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Raid).where(Raid.is_active == True))
     raid = result.scalar_one_or_none()
@@ -266,47 +299,24 @@ async def get_raid_state(db: AsyncSession = Depends(get_db)):
     )
 
 
-# Алиас для фронтенда, если он ищет /current
 @app.get("/api/raid/current", response_model=RaidState)
 async def get_raid_current_alias(db: AsyncSession = Depends(get_db)):
     return await get_raid_state(db)
 
 
-@app.get("/api/user/{user_id}", response_model=UserRead)
-async def get_user_profile(user_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    return user
+# --- SHOP ---
 
-
-@app.post("/api/user/register", response_model=UserRead)
-async def register_user(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.id == user_data.id))
-    existing = result.scalar_one_or_none()
-    if existing: return existing
-
-    new_user = User(
-        id=user_data.id,
-        username=user_data.username,
-        first_name=user_data.first_name,
-        last_name=user_data.last_name
-    )
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    return new_user
-
-
-@app.get("/api/shop/{user_id}", response_model=List[ShopItemRead])
-async def get_shop(user_id: int, db: AsyncSession = Depends(get_db)):
-    logger.info(f"Fetching shop for user {user_id}")
+@app.get("/api/shop", response_model=List[ShopItemRead])
+async def get_shop(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
-        upgrades_result = await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user_id))
+        upgrades_result = await db.execute(
+            select(UserUpgrade).where(UserUpgrade.user_id == current_user.id)
+        )
         upgrades = upgrades_result.scalars().all()
         user_upgrades = {u.upgrade_key: u.level for u in upgrades}
-        logger.info(f"User upgrades: {user_upgrades}")
-        logger.info(f"SHOP_REGISTRY keys: {list(SHOP_REGISTRY.keys())}")
 
         shop_list = []
         for key, item in SHOP_REGISTRY.items():
@@ -321,7 +331,6 @@ async def get_shop(user_id: int, db: AsyncSession = Depends(get_db)):
                 max_level=item.max_level, next_price=price,
                 is_locked=is_locked, is_maxed=is_maxed
             ))
-        logger.info(f"Shop list created: {len(shop_list)} items")
         return shop_list
     except Exception as e:
         logger.error(f"Shop error: {e}", exc_info=True)
@@ -329,16 +338,22 @@ async def get_shop(user_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @app.post("/api/shop/buy")
-async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db)):
-    user_result = await db.execute(select(User).where(User.id == request.user_id))
-    user = user_result.scalar_one_or_none()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
+async def buy_upgrade(
+    request: ShopBuyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    user = current_user
 
     item_cfg = SHOP_REGISTRY.get(request.item_key)
-    if not item_cfg: raise HTTPException(status_code=400, detail="Invalid item")
+    if not item_cfg:
+        raise HTTPException(status_code=400, detail="Invalid item")
 
     upg_result = await db.execute(
-        select(UserUpgrade).where(UserUpgrade.user_id == user.id, UserUpgrade.upgrade_key == request.item_key)
+        select(UserUpgrade).where(
+            UserUpgrade.user_id == user.id,
+            UserUpgrade.upgrade_key == request.item_key,
+        )
     )
     upgrade = upg_result.scalar_one_or_none()
     current_lvl = upgrade.level if upgrade else 0
@@ -346,8 +361,12 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
     if current_lvl >= item_cfg.max_level:
         raise HTTPException(status_code=400, detail="Max level reached")
 
-    # Проверка блокировки
-    user_upgrades = {u.upgrade_key: u.level for u in (await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))).scalars().all()}
+    user_upgrades = {
+        u.upgrade_key: u.level
+        for u in (
+            await db.execute(select(UserUpgrade).where(UserUpgrade.user_id == user.id))
+        ).scalars().all()
+    }
     if item_cfg.is_locked(user_upgrades):
         raise HTTPException(status_code=400, detail="Item is locked")
 
@@ -365,30 +384,25 @@ async def buy_upgrade(request: ShopBuyRequest, db: AsyncSession = Depends(get_db
     return {"message": "Success", "new_gold": user.gold}
 
 
+# --- OCR ---
+
 @app.post("/api/scan-workout", response_model=WorkoutData)
 async def scan_workout(
-    user_id: int = Form(...),
     sport_type: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    Принимает фото тренировки, распознаёт данные через OCR.
-    Возвращает предварительные данные без сохранения.
-    """
-    logger.info(f"Получен запрос на OCR: user_id={user_id}, sport_type={sport_type}, file={file.filename}")
-    
+    logger.info(
+        f"OCR: user_id={current_user.id}, sport_type={sport_type}, file={file.filename}"
+    )
+
     if not file.content_type or not file.content_type.startswith("image/"):
-        logger.error(f"Неверный тип файла: {file.content_type}")
         raise HTTPException(status_code=400, detail="Файл должен быть изображением")
 
     try:
         image_bytes = await file.read()
-        logger.info(f"Размер изображения: {len(image_bytes)} байт")
-        
-        parser = UniversalParser(user_id=user_id, sport_type=sport_type)
+        parser = UniversalParser(user_id=current_user.id, sport_type=sport_type)
         workout_data = await parser.parse_image(image_bytes)
-        
-        logger.info(f"OCR успешен: {workout_data}")
         return workout_data
     except HTTPException:
         raise

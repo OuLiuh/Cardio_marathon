@@ -1,28 +1,19 @@
 services:
-  # База данных
   db:
     image: postgres:15-alpine
     restart: always
-    # Используем переменные из .env для безопасности
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    # Важно: сохраняем данные в "том" (volume), чтобы они не исчезли после перезагрузки
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Порты НЕ указываем (или указываем как 127.0.0.1:5432:5432), 
-    # чтобы базу не взломали из интернета. 
-    # Доступ к ней будет только у backend внутри сети Docker.
-    
-    # Добавь проверку здоровья (Healthcheck), чтобы бэкенд ждал старта базы
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Бэкенд
   backend:
     build: ./backend
     restart: always
@@ -30,35 +21,29 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_HOST: db # Имя сервиса базы данных
+      POSTGRES_HOST: db
+      # Один раз после смены схемы: RESET_DB=1, затем убрать
+      RESET_DB: ${RESET_DB:-0}
     depends_on:
       db:
-        condition: service_healthy # Ждем, пока БД скажет "я здорова"
+        condition: service_healthy
     ports:
       - "8000:8000"
     env_file: .env
 
-  # Фронтенд
   frontend:
     build: ./frontend
     restart: always
 
-  # Бот
-  bot:
-    build: ./bot
-    restart: always
-    env_file: .env
-
-  # Nginx (Входная дверь)
   nginx:
     image: nginx:alpine
     restart: always
     ports:
       - "80:80"
-      - "443:443"              # <--- Открываем порт HTTPS
+      - "443:443"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
-      - ./certs:/etc/nginx/certs:ro   # <--- Подключаем папку с сертификатами
+      - ./certs:/etc/nginx/certs:ro
     depends_on:
       - backend
       - frontend

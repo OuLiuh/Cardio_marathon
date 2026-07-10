@@ -1,6 +1,6 @@
 # backend/schemas.py
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from datetime import datetime
 
 # --- SHOP SCHEMAS ---
@@ -16,10 +16,35 @@ class ShopItemRead(BaseModel):
     is_maxed: bool
 
 class ShopBuyRequest(BaseModel):
-    user_id: int
     item_key: str
 
-# --- EXISTING SCHEMAS ---
+# --- AUTH SCHEMAS ---
+
+class UserBase(BaseModel):
+    username: str
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=4, max_length=128)
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class UserRead(UserBase):
+    id: int
+    level: int
+    xp: int
+    gold: int
+    
+    class Config:
+        from_attributes = True
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserRead
+
+# --- RAID / WORKOUT ---
 
 class RaidParticipant(BaseModel):
     username: str
@@ -31,7 +56,7 @@ class LogDisplay(BaseModel):
     damage: int
     sport_type: str
     created_at: datetime
-    message: Optional[str] = None  # <-- новое поле
+    message: Optional[str] = None
 
 class RaidState(BaseModel):
     boss_name: str
@@ -45,7 +70,7 @@ class RaidState(BaseModel):
     participants: List[RaidParticipant]
 
 class WorkoutData(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None
     sport_type: str = Field(..., description="run, cycle, swim, football")
     duration_minutes: Optional[int] = 0
     calories: Optional[int] = 0
@@ -63,21 +88,3 @@ class AttackResult(BaseModel):
     is_critical: bool
     new_boss_hp: int
     message: str 
-
-class UserBase(BaseModel):
-    username: str
-
-class UserCreate(UserBase):
-    id: int 
-
-class UserUpdate(UserBase):
-    pass 
-
-class UserRead(UserBase):
-    id: int
-    level: int
-    xp: int
-    gold: int
-    
-    class Config:
-        from_attributes = True

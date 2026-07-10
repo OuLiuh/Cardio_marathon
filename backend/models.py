@@ -1,5 +1,5 @@
 # backend/models.py
-from sqlalchemy import String, Float, Integer, Boolean, JSON, ForeignKey, DateTime, UniqueConstraint
+from sqlalchemy import String, Integer, Boolean, JSON, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -11,7 +11,7 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     level: Mapped[int] = mapped_column(Integer, default=1)
@@ -26,12 +26,11 @@ class UserUpgrade(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    upgrade_key: Mapped[str] = mapped_column(String) # Ключ улучшения (run_watch, etc)
+    upgrade_key: Mapped[str] = mapped_column(String)
     level: Mapped[int] = mapped_column(Integer, default=0)
     
     user: Mapped["User"] = relationship(back_populates="upgrades")
 
-    # Уникальность: у юзера может быть только одна запись про конкретный апгрейд
     __table_args__ = (UniqueConstraint('user_id', 'upgrade_key', name='_user_upgrade_uc'),)
 
 class Raid(Base):
@@ -45,10 +44,7 @@ class Raid(Base):
     current_hp: Mapped[int] = mapped_column(Integer)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
-    # Дебаффы, наложенные игроками (пробитая броня и т.д.)
     active_debuffs: Mapped[dict] = mapped_column(JSON, default={})
-    
-    # Врожденные характеристики босса (шанс уворота %, % защиты брони, % регена)
     traits: Mapped[dict] = mapped_column(JSON, default={}) 
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -65,8 +61,6 @@ class RaidLog(Base):
     gold_earned: Mapped[int] = mapped_column(Integer)
     xp_earned: Mapped[int] = mapped_column(Integer)
     is_critical: Mapped[bool] = mapped_column(Boolean, default=False)
-    
-    # Добавляем поле, чтобы знать, увернулся ли босс
     is_miss: Mapped[bool] = mapped_column(Boolean, default=False)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

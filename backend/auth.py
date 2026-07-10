@@ -6,11 +6,11 @@ user_id всегда извлекается из токена — никогда
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import InvalidTokenError
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,29 +18,20 @@ from config import SECRET_KEY
 from database import get_db
 from models import User
 
-# --- Настройки ---
-
-# Алгоритм подписи JWT
 ALGORITHM = "HS256"
-# Срок жизни access-токена (развлекательный проект — длинная сессия, без refresh-токенов)
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 
-# Хеширование паролей через bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# OAuth2-схема: токен читается из заголовка Authorization: Bearer <token>
-# tokenUrl нужен только для генерации OpenAPI-документации (swagger)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 def hash_password(password: str) -> str:
     """Возвращает bcrypt-хеш пароля."""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Проверяет пароль против сохранённого хеша."""
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
 def create_access_token(user_id: int, username: str) -> str:
@@ -65,11 +56,6 @@ async def get_current_user(
     """
     FastAPI-зависимость: извлекает и валидирует JWT из заголовка Authorization,
     затем подгружает пользователя из БД.
-
-    Используется в защищённых эндпоинтах:
-        current_user: User = Depends(get_current_user)
-
-    При невалидном/просроченном токене или удалённом пользователе — 401.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

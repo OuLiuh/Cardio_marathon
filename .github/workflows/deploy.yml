@@ -22,6 +22,7 @@ jobs:
             # Получаем последние изменения из репозитория и обновляем код
             git pull origin main
             
-            # Перезапускаем Docker-сервисы
-            docker compose down
-            docker compose up -d --build
+            # Пересоздаём контейнеры. -v сбрасывает volume БД (нужно после смены схемы users).
+            # Когда данные снова станут ценными — убери флаг -v.
+            docker compose down -v
+            RESET_DB=1 docker compose up -d --build
