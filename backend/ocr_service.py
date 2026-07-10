@@ -4,9 +4,13 @@ import base64
 import json
 import httpx
 from abc import ABC, abstractmethod
-from typing import Optional
 from schemas import WorkoutData
-from config import OPENROUTER_API_KEY
+from config import (
+    OPENROUTER_API_KEY,
+    OPENROUTER_MODEL,
+    OPENROUTER_HTTP_REFERER,
+    OPENROUTER_APP_TITLE,
+)
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -78,12 +82,12 @@ class UniversalParser(BaseWorkoutParser):
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://cardiomarathon.com", # Замените на ваш URL
-            "X-Title": "Cardio Marathon"
+            "HTTP-Referer": OPENROUTER_HTTP_REFERER,
+            "X-Title": OPENROUTER_APP_TITLE,
         }
 
         payload = {
-            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", # Можно заменить на google/gemini-2.5-flash
+            "model": OPENROUTER_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -110,35 +114,41 @@ class UniversalParser(BaseWorkoutParser):
         calories = 0
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers=headers,
                     json=payload
                 )
-                response.raise_for_status()
+                if response.status_code >= 400:
+                    raise self._http_error(response)
+
                 result = response.json()
-                
+
                 if "choices" in result and len(result["choices"]) > 0:
                     raw_text = result["choices"][0]["message"]["content"].strip()
                     logger.info(f"Ответ OpenRouter для user {self.user_id}: \n{raw_text}")
-                    
+
                     # Парсим ответ
                     distance = self._parse_distance(raw_text)
                     duration = self._parse_duration(raw_text)
                     calories = self._parse_calories(raw_text)
                 else:
                     logger.error(f"Неожиданный ответ от OpenRouter: {result}")
-                    raw_text = f"Ошибка API: {result}"
+                    raise ValueError(f"Неожиданный ответ OCR API: {result}")
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP ошибка при обращении к OpenRouter: {e.response.text}")
-            raw_text = f"HTTP ошибка API: {e.response.status_code}"
+            raise self._http_error(e.response) from e
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"Ошибка при обращении к OpenRouter: {e}", exc_info=True)
-            raw_text = f"Ошибка: {str(e)}"
+            raise ValueError(f"Ошибка OCR: {str(e)}") from e
 
-        logger.info(f"Распознанные метрики: distance={distance}km, duration={duration}min, calories={calories}kcal")
+        logger.info(
+            f"Распознанные метрики: distance={distance}km, duration={duration}min, calories={calories}kcal"
+        )
 
         return WorkoutData(
             user_id=self.user_id,
@@ -149,6 +159,45 @@ class UniversalParser(BaseWorkoutParser):
             avg_heart_rate=0,
             raw_text=raw_text
         )
+
+    def _http_error(self, response: httpx.Response) -> ValueError:
+        body_text = response.text
+        detail = body_text
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                if payload.get("error"):
+                    err = payload["error"]
+                    detail = err.get("message", err) if isinstance(err, dict) else str(err)
+                elif payload.get("message"):
+                    detail = payload["message"]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        logger.error(
+            "HTTP ошибка при обращении к OpenRouter: status=%s model=%s body=%s",
+            response.status_code,
+            OPENROUTER_MODEL,
+            body_text,
+        )
+
+        if response.status_code == 403:
+            return ValueError(
+                "OpenRouter отклонил запрос (403): "
+                f"{detail}. "
+                "Проверь лимиты бесплатной модели, ключ API и "
+                "OPENROUTER_MODEL в .env (сейчас нужна модель с vision)."
+            )
+
+        if response.status_code == 401:
+            return ValueError("Неверный OPENROUTER_API_KEY (401 Unauthorized).")
+
+        if response.status_code == 402:
+            return ValueError(
+                "Недостаточно кредитов OpenRouter (402). Пополни баланс на openrouter.ai."
+            )
+
+        return ValueError(f"HTTP ошибка OCR API ({response.status_code}): {detail}")
 
     def _parse_distance(self, text: str) -> float:
         match = re.search(r'Дистанция\s+([\d.,]+)\s*км', text, re.IGNORECASE)

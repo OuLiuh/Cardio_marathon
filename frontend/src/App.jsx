@@ -18,19 +18,87 @@ import {
 import './App.css';
 
 const BOSS_META = {
-  normal: { label: 'Обычный', icon: '🧟', className: 'type-normal' },
-  armored: { label: 'Бронированный', icon: '🛡️', className: 'type-armored' },
-  agile: { label: 'Ловкий', icon: '💨', className: 'type-agile' },
-  radioactive: { label: 'Радиоактивный', icon: '☢️', className: 'type-radioactive' },
-  swarm: { label: 'Рой', icon: '👾', className: 'type-swarm' },
+  normal: {
+    label: 'Обычный',
+    icon: '🧟',
+    className: 'type-normal',
+    short: 'Без особых способностей',
+    detail: 'Стандартный босс. Урон проходит без штрафов и уворотов.',
+  },
+  armored: {
+    label: 'Бронированный',
+    icon: '🛡️',
+    className: 'type-armored',
+    short: '−50% урона, пока броня цела',
+    detail:
+      'Снижает весь урон на 50%, пока броня не расколота. Плавание и футбол имеют 30% шанс пробить броню. После пробития урон ×1.15. HP на 10% выше обычного.',
+  },
+  agile: {
+    label: 'Ловкий',
+    icon: '💨',
+    className: 'type-agile',
+    short: '20% шанс полностью увернуться',
+    detail:
+      'Перед расчётом урона бросается шанс 20%: при успехе атака — промах (0 урона).',
+  },
+  radioactive: {
+    label: 'Радиоактивный',
+    icon: '☢️',
+    className: 'type-radioactive',
+    short: 'Реген 5% HP в сутки',
+    detail:
+      'Каждые сутки восстанавливает 5% от максимального HP. Нужно бить чаще, иначе босс «отрастает».',
+  },
+  swarm: {
+    label: 'Рой',
+    icon: '👾',
+    className: 'type-swarm',
+    short: '−20% HP, стая мелких',
+    detail:
+      'Визуально — рой. Механически: на 20% меньше HP, без особых трейтов. Быстрее падает, но и наградный пул скромнее.',
+  },
 };
 
-const SPORT_OPTIONS = [
-  { key: 'run', label: 'Бег', icon: '🏃' },
-  { key: 'cycle', label: 'Вело', icon: '🚴' },
-  { key: 'swim', label: 'Бассейн', icon: '🏊' },
-  { key: 'football', label: 'Футбол', icon: '⚽' },
+const ACTIVITY_INFO = [
+  {
+    key: 'run',
+    label: 'Бег',
+    icon: '🏃',
+    short: 'Дистанция × 75 + время',
+    detail:
+      'Урон = (км × 75) + минуты. Если время < 30 мин — урон ×0.8. Если дистанция > 5 км — урон ×1.1. Затем множитель уровня героя (+1% за уровень) и апгрейды.',
+  },
+  {
+    key: 'cycle',
+    label: 'Велосипед',
+    icon: '🚴',
+    short: '30 × км + время',
+    detail:
+      'Урон = (30 × км) + минуты. Затем множитель уровня (+1% за ур.) и апгрейды магазина.',
+  },
+  {
+    key: 'swim',
+    label: 'Плавание',
+    icon: '🏊',
+    short: 'Метры / 2, шанс пробить броню',
+    detail:
+      'Урон = (км × 1000) / 2, то есть метры ÷ 2. 30% шанс наложить «броня расколота». Затем уровень и апгрейды.',
+  },
+  {
+    key: 'football',
+    label: 'Футбол',
+    icon: '⚽',
+    short: 'Калории / 2, шанс пробить броню',
+    detail:
+      'Урон = калории ÷ 2. 30% шанс пробить броню босса. Затем уровень и апгрейды.',
+  },
 ];
+
+const SPORT_OPTIONS = ACTIVITY_INFO.map(({ key, label, icon }) => ({
+  key,
+  label: key === 'cycle' ? 'Вело' : key === 'swim' ? 'Бассейн' : label,
+  icon,
+}));
 
 function getBossMeta(type) {
   return BOSS_META[type] || BOSS_META.normal;
@@ -91,6 +159,83 @@ function IconGold() {
   );
 }
 
+function IconInfo() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 4.2a1.4 1.4 0 1 1-1.4 1.4A1.4 1.4 0 0 1 12 6.2zM13.2 17h-2.4v-7h2.4z"
+      />
+    </svg>
+  );
+}
+
+function CodexPanel({ mode, onSelect }) {
+  if (mode === 'menu') {
+    return (
+      <div className="codex-menu fade-in">
+        <h2 className="codex-title">Справочник выжившего</h2>
+        <p className="codex-lede">Выбери раздел</p>
+        <button type="button" className="btn btn-primary" onClick={() => onSelect('activities')}>
+          Активности и урон
+        </button>
+        <button type="button" className="btn btn-ghost codex-second-btn" onClick={() => onSelect('bosses')}>
+          Типы боссов
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === 'activities') {
+    return (
+      <div className="codex-detail fade-in">
+        <button type="button" className="btn btn-ghost btn-sm codex-back" onClick={() => onSelect('menu')}>
+          ← К разделам
+        </button>
+        <h2 className="codex-title">Активности</h2>
+        <p className="codex-lede">
+          Базовый урон считается по формуле вида спорта, затем × (1 + уровень × 0.01) и апгрейды.
+          Броня босса может резать урон вдвое, пока не пробита.
+        </p>
+        <ul className="codex-list">
+          {ACTIVITY_INFO.map((a) => (
+            <li key={a.key}>
+              <span className="codex-icon">{a.icon}</span>
+              <div>
+                <strong>{a.label}</strong>
+                <span className="codex-formula">{a.short}</span>
+                <span>{a.detail}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div className="codex-detail fade-in">
+      <button type="button" className="btn btn-ghost btn-sm codex-back" onClick={() => onSelect('menu')}>
+        ← К разделам
+      </button>
+      <h2 className="codex-title">Типы боссов</h2>
+      <p className="codex-lede">Тип выбирается случайно при старте рейда.</p>
+      <ul className="codex-list">
+        {Object.entries(BOSS_META).map(([key, b]) => (
+          <li key={key}>
+            <span className="codex-icon">{b.icon}</span>
+            <div>
+              <strong className={b.className}>{b.label}</strong>
+              <span className="codex-formula">{b.short}</span>
+              <span>{b.detail}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function MessageBlock({ message }) {
   if (!message) return null;
   const isError = typeof message === 'object' || String(message).startsWith('❌');
@@ -128,6 +273,8 @@ function App() {
   const [preview, setPreview] = useState('');
   const [parsedData, setParsedData] = useState(null);
   const [confirmMode, setConfirmMode] = useState(false);
+  const [shopInfoOpen, setShopInfoOpen] = useState(false);
+  const [codexView, setCodexView] = useState('menu'); // menu | activities | bosses
   const [formData, setFormData] = useState({
     sport_type: 'run',
     duration_minutes: 30,
@@ -417,6 +564,17 @@ function App() {
             </div>
             <h1 className="screen-title">Арсенал</h1>
             <div className="top-side top-side-end">
+              <button
+                type="button"
+                className="icon-btn"
+                title="Справка"
+                onClick={() => {
+                  setCodexView('menu');
+                  setShopInfoOpen(true);
+                }}
+              >
+                <IconInfo />
+              </button>
               <div className="gold-chip" title="Золото">
                 <IconGold />
                 <span>{currentUser.gold}</span>
@@ -459,6 +617,30 @@ function App() {
               </div>
             ))}
           </div>
+
+          {shopInfoOpen && (
+            <div
+              className="modal-backdrop"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Справка"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setShopInfoOpen(false);
+              }}
+            >
+              <div className="modal-panel">
+                <button
+                  type="button"
+                  className="modal-close"
+                  onClick={() => setShopInfoOpen(false)}
+                  title="Закрыть"
+                >
+                  ×
+                </button>
+                <CodexPanel mode={codexView} onSelect={setCodexView} />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -515,7 +697,7 @@ function App() {
           <div className="panel welcome-panel">
             <p className="brand-mark">Pulse Guardian</p>
             <h1 className="welcome-name">{currentUser.username}</h1>
-            <p className="lede">Готов к вылазке?</p>
+            <p className="lede">Готов к вылазке? Краткий брифинг перед боем.</p>
             <div className="stats-row">
               <div className="stat-chip">Lv. {currentUser.level}</div>
               <div className="stat-chip gold">
@@ -523,6 +705,37 @@ function App() {
                 {currentUser.gold}
               </div>
             </div>
+
+            <section className="brief-block">
+              <h2 className="brief-title">Активности</h2>
+              <ul className="brief-list">
+                {ACTIVITY_INFO.map((a) => (
+                  <li key={a.key}>
+                    <span>{a.icon}</span>
+                    <div>
+                      <strong>{a.label}</strong>
+                      <span>{a.short}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="brief-block">
+              <h2 className="brief-title">Боссы</h2>
+              <ul className="brief-list">
+                {Object.entries(BOSS_META).map(([key, b]) => (
+                  <li key={key}>
+                    <span>{b.icon}</span>
+                    <div>
+                      <strong>{b.label}</strong>
+                      <span>{b.short}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
             <button className="btn btn-primary" onClick={handleEnterGame}>
               В бой
             </button>

@@ -22,6 +22,16 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 
 # API-ключ для OCR (OpenRouter)
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+# Модель с vision (бесплатный эндпоинт OpenRouter)
+OPENROUTER_MODEL = os.getenv(
+    'OPENROUTER_MODEL',
+    'tencent/hy3:free',
+)
+OPENROUTER_HTTP_REFERER = os.getenv(
+    'OPENROUTER_HTTP_REFERER',
+    'https://xn--80aalqhpifcof2c.xn--p1ai',
+)
+OPENROUTER_APP_TITLE = os.getenv('OPENROUTER_APP_TITLE', 'Pulse Guardian')
 
 # Проверка на обязательные переменные
 if not POSTGRES_USER:
