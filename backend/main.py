@@ -7,7 +7,6 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import pytz
 
 from database import init_models, get_db
 from models import User, Raid, RaidLog, UserUpgrade

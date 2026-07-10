@@ -1,0 +1,22 @@
+# Виртуальные окружения — не нужны внутри контейнера
+.venv/
+venv/
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# IDE и системный мусор
+.idea/
+.vscode/
+.DS_Store
+
+# Документация и артефакты, не нужные в рантайме
+*.md
+architecture_review.md
+
+# Переменные окружения (передаются через docker-compose env_file)
+.env
+.env.*

@@ -1,9 +1,22 @@
-fastapi
-uvicorn
-sqlalchemy
-asyncpg
-pydantic
-python-dotenv
-pytz
-python-multipart
-httpx
+# --- Веб-фреймворк и ASGI-сервер ---
+fastapi~=0.115.0
+uvicorn~=0.34.0
+
+# --- База данных ---
+sqlalchemy~=2.0.36
+asyncpg~=0.30.0
+
+# --- Валидация и конфигурация ---
+pydantic~=2.10.0
+python-dotenv~=1.0.0
+
+# --- Аутентификация: хеширование паролей + JWT ---
+# Используем bcrypt напрямую (passlib не поддерживается и конфликтует с bcrypt>=4.1)
+bcrypt~=4.2.0
+PyJWT~=2.10.0
+
+# --- Загрузка файлов (UploadFile / Form) ---
+python-multipart~=0.0.20
+
+# --- HTTP-клиент для OCR (OpenRouter) ---
+httpx~=0.28.0

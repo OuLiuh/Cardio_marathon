@@ -1,6 +1,11 @@
 node_modules/
 __pycache__/
 venv/
+.venv/
 .env
 .git/
 dist/
+
+# IDE
+.idea/
+.vscode/

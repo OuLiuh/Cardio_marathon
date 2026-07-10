@@ -17,9 +17,10 @@ POSTGRES_PORT = os.getenv('POSTGRES_PORT', "5432") # 5432 по умолчани�
 
 DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
+# Секретный ключ для подписи JWT-токенов авторизации
+SECRET_KEY = os.getenv('SECRET_KEY')
 
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-WEBAPP_URL = os.getenv('WEBAPP_URL')
+# API-ключ для OCR (OpenRouter)
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
 # Проверка на обязательные переменные
@@ -35,7 +36,5 @@ if not POSTGRES_PORT:
     raise ValueError("В файле .env не задан POSTGRES_PORT!")
 if not DATABASE_URL:
     raise ValueError("В файле .env не задан DATABASE_URL!")
-if not BOT_TOKEN:
-    raise ValueError("В файле .env не задан BOT_TOKEN!")
-if not WEBAPP_URL:
-    raise ValueError("В файле .env не задан WEBAPP_URL!")
+if not SECRET_KEY:
+    raise ValueError("В файле .env не задан SECRET_KEY!")

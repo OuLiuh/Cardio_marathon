@@ -1,21 +1,19 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
-# Установка Tesseract OCR — необходим для pytesseract
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        tesseract-ocr \
-        tesseract-ocr-rus \
-        libtesseract-dev && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Установка Python зависимостей
+# Установка Python-зависимостей.
+# Слой отделён от копирования кода, чтобы кэш Docker не инвалидировался
+# при каждом изменении исходников — pip install выполняется только при
+# изменении requirements.txt.
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем код приложения
+# Копирование кода приложения.
+# Используется .dockerignore, чтобы не тащить в образ .venv, __pycache__ и т.п.
 COPY . .
 
-# Запуск сервера
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Запуск сервера.
+# --proxy-headers / --forwarded-allow-ips — корректное определение
+# реального IP клиента за nginx.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -1,0 +1,16 @@
+# Виртуальные окружения
+.venv/
+venv/
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+
+# IDE и системный мусор
+.idea/
+.vscode/
+.DS_Store
+
+# Переменные окружения
+.env
+.env.*

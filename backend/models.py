@@ -1,5 +1,5 @@
 # backend/models.py
-from sqlalchemy import BigInteger, String, Float, Integer, Boolean, JSON, ForeignKey, DateTime, UniqueConstraint
+from sqlalchemy import String, Float, Integer, Boolean, JSON, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -11,8 +11,9 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    username: Mapped[str] = mapped_column(String, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
     level: Mapped[int] = mapped_column(Integer, default=1)
     xp: Mapped[int] = mapped_column(Integer, default=0)
     gold: Mapped[int] = mapped_column(Integer, default=0)
