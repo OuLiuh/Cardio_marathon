@@ -1,5 +1,5 @@
 /**
- * App.jsx — Pulse Guardian (standalone web app)
+ * App.jsx — Pulse Guardian (zombie apocalypse UI)
  */
 
 import { useState, useEffect } from 'react';
@@ -17,9 +17,105 @@ import {
 } from './api';
 import './App.css';
 
+const BOSS_META = {
+  normal: { label: 'Обычный', icon: '🧟', className: 'type-normal' },
+  armored: { label: 'Бронированный', icon: '🛡️', className: 'type-armored' },
+  agile: { label: 'Ловкий', icon: '💨', className: 'type-agile' },
+  radioactive: { label: 'Радиоактивный', icon: '☢️', className: 'type-radioactive' },
+  swarm: { label: 'Рой', icon: '👾', className: 'type-swarm' },
+};
+
+const SPORT_OPTIONS = [
+  { key: 'run', label: 'Бег', icon: '🏃' },
+  { key: 'cycle', label: 'Вело', icon: '🚴' },
+  { key: 'swim', label: 'Бассейн', icon: '🏊' },
+  { key: 'football', label: 'Футбол', icon: '⚽' },
+];
+
+function getBossMeta(type) {
+  return BOSS_META[type] || BOSS_META.normal;
+}
+
+function IconShop() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M4 7h16l-1.2 12.2A2 2 0 0 1 16.81 21H7.19a2 2 0 0 1-1.99-1.8L4 7zm3-4h10l1 3H6l1-3z"
+      />
+    </svg>
+  );
+}
+
+function IconLogout() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M10 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-8v-2h8V5h-8V3zm-1.3 5.3 1.4-1.4L15.2 12l-5.1 5.1-1.4-1.4L11.4 13H3v-2h8.4L8.7 8.3z"
+      />
+    </svg>
+  );
+}
+
+function IconUser() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 12a4.5 4.5 0 1 0-4.5-4.5A4.5 4.5 0 0 0 12 12zm0 2c-4.2 0-8 2.1-8 5v1h16v-1c0-2.9-3.8-5-8-5z"
+      />
+    </svg>
+  );
+}
+
+function IconBack() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M14.7 5.3 8 12l6.7 6.7 1.4-1.4L10.8 12l5.3-5.3-1.4-1.4z"
+      />
+    </svg>
+  );
+}
+
+function IconGold() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 2a7 7 0 0 0-7 7c0 4.2 3.3 7.6 7.5 11.1L12 22l-.5-1.9C15.7 16.6 19 13.2 19 9a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 14.5 9 2.5 2.5 0 0 1 12 11.5z"
+      />
+    </svg>
+  );
+}
+
+function MessageBlock({ message }) {
+  if (!message) return null;
+  const isError = typeof message === 'object' || String(message).startsWith('❌');
+  return (
+    <div className={`game-message ${isError ? 'is-error' : 'is-ok'}`}>
+      {typeof message === 'object' ? (
+        <>
+          <div>{message.main}</div>
+          {message.rawText && (
+            <details className="raw-details">
+              <summary>Распознанный текст</summary>
+              <pre>{message.rawText}</pre>
+            </details>
+          )}
+        </>
+      ) : (
+        message
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [screen, setScreen] = useState('loading');
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
+  const [authMode, setAuthMode] = useState('login');
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
   const [authError, setAuthError] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
@@ -212,23 +308,64 @@ function App() {
     setFormData((prev) => ({ ...prev, sport_type: type }));
   };
 
-  // --- SCREENS ---
+  const bossMeta = raid ? getBossMeta(raid.boss_type) : null;
+  const hpPercent = raid
+    ? Math.max(0, Math.min(100, (raid.current_hp / raid.max_hp) * 100))
+    : 0;
 
   if (screen === 'loading') {
-    return <div className="center-screen">Загрузка...</div>;
+    return (
+      <div className="app-shell">
+        <div className="center-screen">
+          <div className="pulse-loader" />
+          <p>Сканирование зоны...</p>
+        </div>
+      </div>
+    );
   }
 
   if (screen === 'auth') {
     return (
-      <div className="container fade-in">
-        <div className="card auth-card">
-          <h1>Pulse Guardian</h1>
-          <p className="auth-subtitle">
-            {authMode === 'login' ? 'Вход в игру' : 'Создание героя'}
-          </p>
-          <form className="auth-form" onSubmit={handleAuthSubmit}>
-            <label>
-              Имя героя
+      <div className="app-shell">
+        <div className="atmosphere" aria-hidden="true" />
+        <div className="container fade-in auth-screen">
+          <div className="brand-block">
+            <p className="brand-mark">Pulse Guardian</p>
+            <p className="brand-tagline">Выживи. Тренируйся. Убей босса.</p>
+          </div>
+
+          <form className="panel auth-panel" onSubmit={handleAuthSubmit}>
+            <div className="auth-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                className={`auth-tab ${authMode === 'login' ? 'active' : ''}`}
+                aria-selected={authMode === 'login'}
+                onClick={() => {
+                  setAuthError('');
+                  setAuthMode('login');
+                }}
+              >
+                <IconUser />
+                <span>Вход</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={`auth-tab ${authMode === 'register' ? 'active' : ''}`}
+                aria-selected={authMode === 'register'}
+                onClick={() => {
+                  setAuthError('');
+                  setAuthMode('register');
+                }}
+              >
+                <IconUser />
+                <span>Регистрация</span>
+              </button>
+            </div>
+
+            <label className="field">
+              <span>Имя героя</span>
               <input
                 type="text"
                 autoComplete="username"
@@ -239,8 +376,8 @@ function App() {
                 placeholder="Например, DevHero"
               />
             </label>
-            <label>
-              Пароль
+            <label className="field">
+              <span>Пароль</span>
               <input
                 type="password"
                 autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
@@ -251,27 +388,17 @@ function App() {
                 placeholder="Минимум 4 символа"
               />
             </label>
+
             {authError && <div className="auth-error">{authError}</div>}
-            <button className="attack-btn" type="submit" disabled={loadingAction}>
+
+            <button className="btn btn-primary" type="submit" disabled={loadingAction}>
               {loadingAction
                 ? '...'
                 : authMode === 'login'
-                  ? 'Войти'
-                  : 'Зарегистрироваться'}
+                  ? 'Войти в зону'
+                  : 'Создать героя'}
             </button>
           </form>
-          <button
-            type="button"
-            className="auth-switch"
-            onClick={() => {
-              setAuthError('');
-              setAuthMode((m) => (m === 'login' ? 'register' : 'login'));
-            }}
-          >
-            {authMode === 'login'
-              ? 'Нет аккаунта? Зарегистрироваться'
-              : 'Уже есть аккаунт? Войти'}
-          </button>
         </div>
       </div>
     );
@@ -279,47 +406,59 @@ function App() {
 
   if (screen === 'shop') {
     return (
-      <div className="container fade-in">
-        <div className="header-row">
-          <button className="back-btn" onClick={() => setScreen('main')}>
-            ← Назад
-          </button>
-          <div className="gold-info">💰 {currentUser.gold}</div>
-        </div>
-        <h1>🛒 Магазин</h1>
-        <div className="shop-list">
-          {shopItems.map((item) => (
-            <div
-              key={item.key}
-              className={`shop-item ${item.is_locked ? 'locked' : ''} ${item.sport_type}`}
-            >
-              <div className="item-info">
-                <h3>
-                  {item.name}{' '}
-                  {item.current_level > 0 && (
-                    <span className="lvl-tag">Lvl {item.current_level}</span>
-                  )}
-                </h3>
-                <p>{item.description}</p>
-                {item.is_locked && (
-                  <small className="lock-reason">🔒 Требуются улучшения 10 ур.</small>
-                )}
-              </div>
-              <div className="item-action">
-                {item.is_maxed ? (
-                  <span className="max-tag">MAX</span>
-                ) : (
-                  <button
-                    className="buy-btn"
-                    disabled={item.is_locked || currentUser.gold < item.next_price}
-                    onClick={() => handleBuy(item.key)}
-                  >
-                    {item.next_price} 💰
-                  </button>
-                )}
+      <div className="app-shell">
+        <div className="atmosphere" aria-hidden="true" />
+        <div className="container fade-in">
+          <header className="top-bar">
+            <div className="top-side">
+              <button className="icon-btn" onClick={() => setScreen('main')} title="Назад">
+                <IconBack />
+              </button>
+            </div>
+            <h1 className="screen-title">Арсенал</h1>
+            <div className="top-side top-side-end">
+              <div className="gold-chip" title="Золото">
+                <IconGold />
+                <span>{currentUser.gold}</span>
               </div>
             </div>
-          ))}
+          </header>
+
+          <div className="shop-list">
+            {shopItems.map((item) => (
+              <div
+                key={item.key}
+                className={`shop-item ${item.is_locked ? 'locked' : ''} ${item.sport_type}`}
+              >
+                <div className="item-info">
+                  <h3>
+                    {item.name}
+                    {item.current_level > 0 && (
+                      <span className="lvl-tag">Lvl {item.current_level}</span>
+                    )}
+                  </h3>
+                  <p>{item.description}</p>
+                  {item.is_locked && (
+                    <small className="lock-reason">Требуются улучшения 10 ур.</small>
+                  )}
+                </div>
+                <div className="item-action">
+                  {item.is_maxed ? (
+                    <span className="max-tag">MAX</span>
+                  ) : (
+                    <button
+                      className="btn btn-buy"
+                      disabled={item.is_locked || currentUser.gold < item.next_price}
+                      onClick={() => handleBuy(item.key)}
+                    >
+                      <IconGold />
+                      {item.next_price}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -327,24 +466,42 @@ function App() {
 
   if (screen === 'rules') {
     return (
-      <div className="container fade-in">
-        <div className="card">
-          <h1>📜 Кодекс</h1>
-          <p>Привет, {currentUser.username}! Титан Лени угрожает нам.</p>
-          <ul className="rules-list">
-            <li>
-              🏃 <b>Тренируйся:</b> Бег, Вело, Плаванье.
-            </li>
-            <li>
-              🔥 <b>Сжигай:</b> Калории = Урон по боссу.
-            </li>
-            <li>
-              💰 <b>Зарабатывай:</b> Золото делят победители.
-            </li>
-          </ul>
-          <button className="attack-btn" onClick={handleEnterGame}>
-            Вступить
-          </button>
+      <div className="app-shell">
+        <div className="atmosphere" aria-hidden="true" />
+        <div className="container fade-in">
+          <div className="panel rules-panel">
+            <p className="brand-mark brand-mark-sm">Pulse Guardian</p>
+            <h1 className="screen-title">Кодекс выживания</h1>
+            <p className="lede">
+              Привет, {currentUser.username}. Титан Лени уже в городе — держись в строю.
+            </p>
+            <ul className="rules-list">
+              <li>
+                <span className="rule-icon">🏃</span>
+                <div>
+                  <strong>Тренируйся</strong>
+                  <span>Бег, вело, плаванье, футбол</span>
+                </div>
+              </li>
+              <li>
+                <span className="rule-icon">🔥</span>
+                <div>
+                  <strong>Сжигай</strong>
+                  <span>Калории превращаются в урон по боссу</span>
+                </div>
+              </li>
+              <li>
+                <span className="rule-icon">💰</span>
+                <div>
+                  <strong>Зарабатывай</strong>
+                  <span>Золото делят победители рейда</span>
+                </div>
+              </li>
+            </ul>
+            <button className="btn btn-primary" onClick={handleEnterGame}>
+              Вступить в рейд
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -352,269 +509,282 @@ function App() {
 
   if (screen === 'welcome') {
     return (
-      <div className="container fade-in">
-        <div className="card center-text">
-          <h1>Привет, {currentUser.username}!</h1>
-          <div className="stats-row">
-            <div>⭐ Lv. {currentUser.level}</div>
-            <div>💰 {currentUser.gold}</div>
+      <div className="app-shell">
+        <div className="atmosphere" aria-hidden="true" />
+        <div className="container fade-in">
+          <div className="panel welcome-panel">
+            <p className="brand-mark">Pulse Guardian</p>
+            <h1 className="welcome-name">{currentUser.username}</h1>
+            <p className="lede">Готов к вылазке?</p>
+            <div className="stats-row">
+              <div className="stat-chip">Lv. {currentUser.level}</div>
+              <div className="stat-chip gold">
+                <IconGold />
+                {currentUser.gold}
+              </div>
+            </div>
+            <button className="btn btn-primary" onClick={handleEnterGame}>
+              В бой
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={handleLogout}>
+              Выйти
+            </button>
           </div>
-          <button className="attack-btn" onClick={handleEnterGame}>
-            В БОЙ ⚔️
-          </button>
-          <button type="button" className="auth-switch" onClick={handleLogout}>
-            Выйти
-          </button>
         </div>
       </div>
     );
   }
 
   if (!raid) {
-    return <div className="center-screen">Поиск сигнала...</div>;
+    return (
+      <div className="app-shell">
+        <div className="center-screen">
+          <div className="pulse-loader" />
+          <p>Поиск сигнала рейда...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="container main-layout">
-      <header className="game-header">
-        <div className="user-info">
-          <span className="lvl-badge">{currentUser.level}</span>
-          <span>{currentUser.username}</span>
-        </div>
-        <div className="header-actions">
-          <div className="gold-info">💰 {currentUser.gold}</div>
-          <button type="button" className="logout-btn" onClick={handleLogout} title="Выйти">
-            ⎋
-          </button>
-        </div>
-      </header>
+    <div className="app-shell">
+      <div className="atmosphere" aria-hidden="true" />
+      <div className="container main-layout fade-in">
+        <header className="top-bar">
+          <div className="user-chip">
+            <span className="lvl-badge">Lv.{currentUser.level}</span>
+            <span className="user-name">{currentUser.username}</span>
+          </div>
 
-      <button className="shop-btn-floating" onClick={openShop}>
-        🛒
-      </button>
-
-      <div className="battle-arena">
-        <div className={`boss-center ${raid.boss_type}`}>
-          <div className="boss-emoji">👹</div>
-        </div>
-        {raid.participants?.map((p, index) => {
-          const total = raid.participants.length;
-          const angle = (index / total) * 2 * Math.PI;
-          const x = Math.cos(angle - Math.PI / 2) * 100;
-          const y = Math.sin(angle - Math.PI / 2) * 100;
-          return (
-            <div
-              key={index}
-              className="player-orbit"
-              style={{ transform: `translate(${x}px, ${y}px)` }}
+          <nav className="icon-rail" aria-label="Действия">
+            <div className="gold-chip" title="Золото">
+              <IconGold />
+              <span>{currentUser.gold}</span>
+            </div>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={openShop}
+              title="Магазин"
+              disabled={loadingAction}
             >
+              <IconShop />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={handleLogout}
+              title="Выйти"
+            >
+              <IconLogout />
+            </button>
+          </nav>
+        </header>
+
+        <section className="battle-arena" aria-label="Арена рейда">
+          <div className="orbit-ring" aria-hidden="true" />
+          <div className={`boss-center ${raid.boss_type}`}>
+            <div className="boss-emoji" aria-hidden="true">
+              {bossMeta.icon}
+            </div>
+            <div className={`boss-type-pill ${bossMeta.className}`}>
+              {bossMeta.label}
+            </div>
+            <div className="boss-hp-mini">
+              <div className="boss-hp-mini-fill" style={{ width: `${hpPercent}%` }} />
+            </div>
+          </div>
+
+          {raid.participants?.map((p, index) => {
+            const total = Math.max(raid.participants.length, 1);
+            const angle = (index / total) * 2 * Math.PI;
+            const radius = 118;
+            const x = Math.cos(angle - Math.PI / 2) * radius;
+            const y = Math.sin(angle - Math.PI / 2) * radius;
+            return (
               <div
-                className="player-avatar"
-                style={{ backgroundColor: p.avatar_color }}
+                key={`${p.username}-${index}`}
+                className="player-orbit"
+                style={{
+                  transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
+                }}
+                title={p.username}
               >
-                {p.username.charAt(0).toUpperCase()}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="card boss-card">
-        <h2 className="boss-name">{raid.boss_name}</h2>
-        <div className="hp-wrapper">
-          <div className="hp-container">
-            <div
-              className="hp-fill"
-              style={{
-                width: `${Math.max(0, (raid.current_hp / raid.max_hp) * 100)}%`,
-              }}
-            ></div>
-          </div>
-          <span className="hp-numbers">
-            {raid.current_hp} / {raid.max_hp} HP
-          </span>
-        </div>
-        {raid.active_debuffs?.armor_break && (
-          <div className="debuff-notification">🔨 БРОНЯ РАСКОЛОТА!</div>
-        )}
-      </div>
-
-      <div className="card action-card">
-        {!showAttackForm ? (
-          <button
-            className="attack-btn primary"
-            onClick={() => setShowAttackForm(true)}
-          >
-            ВНЕСТИ ТРЕНИРОВКУ 📷
-          </button>
-        ) : (
-          <div className="attack-form fade-in">
-            <h3>Тип тренировки</h3>
-            <div className="sport-grid">
-              <button
-                className={`sport-btn ${formData.sport_type === 'run' ? 'active' : ''}`}
-                onClick={() => setSport('run')}
-              >
-                🏃 Бег
-              </button>
-              <button
-                className={`sport-btn ${formData.sport_type === 'cycle' ? 'active' : ''}`}
-                onClick={() => setSport('cycle')}
-              >
-                🚴 Велосипед
-              </button>
-              <button
-                className={`sport-btn ${formData.sport_type === 'swim' ? 'active' : ''}`}
-                onClick={() => setSport('swim')}
-              >
-                🏊 Бассейн
-              </button>
-              <button
-                className={`sport-btn ${formData.sport_type === 'football' ? 'active' : ''}`}
-                onClick={() => setSport('football')}
-              >
-                ⚽ Футбол
-              </button>
-            </div>
-
-            {!confirmMode ? (
-              <>
-                <label className="upload-label">
-                  📎 Прикрепить фото
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) {
-                        setPhoto(file);
-                        setPreview(URL.createObjectURL(file));
-                        setParsedData(null);
-                        setConfirmMode(false);
-                        setMessage('');
-                      }
-                    }}
-                    style={{ display: 'none' }}
-                  />
-                </label>
-                {preview && (
-                  <img
-                    src={preview}
-                    alt="Предпросмотр"
-                    style={{
-                      width: '100%',
-                      borderRadius: '8px',
-                      margin: '10px 0',
-                    }}
-                  />
-                )}
-                <button
-                  className="attack-btn"
-                  disabled={!photo || loadingAction}
-                  onClick={handleParse}
+                <div
+                  className="player-avatar"
+                  style={{ backgroundColor: p.avatar_color }}
                 >
-                  {loadingAction ? 'Распознаём...' : 'Распознать'}
-                </button>
-              </>
-            ) : (
-              <div className="parsed-preview">
-                <h3>Подтверди данные:</h3>
-                <ul>
-                  {parsedData.distance_km > 0 && (
-                    <li>📏 Дистанция: {parsedData.distance_km} км</li>
-                  )}
-                  {parsedData.duration_minutes > 0 && (
-                    <li>⏱️ Время: {parsedData.duration_minutes} мин</li>
-                  )}
-                  {parsedData.calories > 0 && (
-                    <li>🔥 Калории: {parsedData.calories} ккал</li>
-                  )}
-                  <li>
-                    <strong>🎯 Вид спорта:</strong> {parsedData.sport_type}
-                  </li>
-                </ul>
-
-                <details
-                  style={{ fontSize: '0.8em', color: '#888', marginTop: '10px' }}
-                >
-                  <summary>📄 Показать распознанный текст</summary>
-                  <pre
-                    style={{
-                      whiteSpace: 'pre-wrap',
-                      background: '#111',
-                      padding: '10px',
-                      borderRadius: '6px',
-                    }}
-                  >
-                    {parsedData.raw_text}
-                  </pre>
-                </details>
-
-                <div className="form-actions">
-                  <button className="cancel-btn" onClick={handleRetry}>
-                    Перезагрузить
-                  </button>
-                  <button className="attack-btn" onClick={handleConfirm}>
-                    ✅ Подтвердить
-                  </button>
+                  {p.username.charAt(0).toUpperCase()}
                 </div>
+                <span className="player-label">{p.username}</span>
               </div>
-            )}
+            );
+          })}
+        </section>
 
-            {message && (
-              <div className="game-message">
-                {typeof message === 'object' ? (
-                  <>
-                    <div>❌ {message.main}</div>
-                    {message.rawText && (
-                      <details
-                        style={{
-                          fontSize: '0.75em',
-                          color: '#aaa',
-                          marginTop: '8px',
-                        }}
-                      >
-                        <summary>📄 Показать распознанный текст</summary>
-                        <pre
-                          style={{
-                            whiteSpace: 'pre-wrap',
-                            background: '#111',
-                            padding: '8px',
-                            borderRadius: '4px',
-                            marginTop: '5px',
-                            maxHeight: '150px',
-                            overflow: 'auto',
-                          }}
-                        >
-                          {message.rawText}
-                        </pre>
-                      </details>
-                    )}
-                  </>
-                ) : (
-                  message
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="logs-container">
-        {raid.recent_logs.map((log, i) => (
-          <div key={i} className="log-item">
-            <span className="log-user">{log.username}</span>
-            <span className="log-action">
-              {log.message ? (
-                <>💬 {log.message}</>
-              ) : (
-                <>
-                  нанес <span className="log-dmg">-{log.damage}</span>
-                </>
-              )}
+        <section className="boss-hud">
+          <div className="boss-hud-top">
+            <h2 className="boss-name">{raid.boss_name}</h2>
+            <span className={`boss-type-badge ${bossMeta.className}`}>
+              {bossMeta.icon} {bossMeta.label}
             </span>
           </div>
-        ))}
+          <div className="hp-wrapper">
+            <div className="hp-container" role="progressbar" aria-valuenow={raid.current_hp} aria-valuemin={0} aria-valuemax={raid.max_hp}>
+              <div className="hp-fill" style={{ width: `${hpPercent}%` }} />
+            </div>
+            <span className="hp-numbers">
+              {raid.current_hp} / {raid.max_hp} HP
+            </span>
+          </div>
+          {raid.active_debuffs?.armor_break && (
+            <div className="debuff-notification">Броня расколота</div>
+          )}
+        </section>
+
+        <section className="action-panel">
+          {!showAttackForm ? (
+            <button
+              className="btn btn-primary btn-xl"
+              onClick={() => setShowAttackForm(true)}
+            >
+              Внести тренировку
+            </button>
+          ) : (
+            <div className="attack-form fade-in">
+              <div className="form-head">
+                <h3>Тип тренировки</h3>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setShowAttackForm(false);
+                    handleRetry();
+                  }}
+                >
+                  Закрыть
+                </button>
+              </div>
+
+              <div className="sport-grid">
+                {SPORT_OPTIONS.map((sport) => (
+                  <button
+                    key={sport.key}
+                    type="button"
+                    className={`sport-btn ${formData.sport_type === sport.key ? 'active' : ''}`}
+                    onClick={() => setSport(sport.key)}
+                  >
+                    <span className="sport-icon">{sport.icon}</span>
+                    <span>{sport.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {!confirmMode ? (
+                <>
+                  <label className="upload-label">
+                    <span className="upload-title">Прикрепить фото</span>
+                    <span className="upload-hint">Скриншот тренировки</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          setPhoto(file);
+                          setPreview(URL.createObjectURL(file));
+                          setParsedData(null);
+                          setConfirmMode(false);
+                          setMessage('');
+                        }
+                      }}
+                    />
+                  </label>
+                  {preview && (
+                    <img src={preview} alt="Предпросмотр" className="preview-img" />
+                  )}
+                  <button
+                    className="btn btn-primary"
+                    disabled={!photo || loadingAction}
+                    onClick={handleParse}
+                  >
+                    {loadingAction ? 'Распознаём...' : 'Распознать'}
+                  </button>
+                </>
+              ) : (
+                <div className="parsed-preview">
+                  <h3>Подтверди данные</h3>
+                  <ul className="parsed-list">
+                    {parsedData.distance_km > 0 && (
+                      <li>
+                        <span>Дистанция</span>
+                        <strong>{parsedData.distance_km} км</strong>
+                      </li>
+                    )}
+                    {parsedData.duration_minutes > 0 && (
+                      <li>
+                        <span>Время</span>
+                        <strong>{parsedData.duration_minutes} мин</strong>
+                      </li>
+                    )}
+                    {parsedData.calories > 0 && (
+                      <li>
+                        <span>Калории</span>
+                        <strong>{parsedData.calories} ккал</strong>
+                      </li>
+                    )}
+                    <li>
+                      <span>Вид спорта</span>
+                      <strong>{parsedData.sport_type}</strong>
+                    </li>
+                  </ul>
+
+                  {parsedData.raw_text && (
+                    <details className="raw-details">
+                      <summary>Распознанный текст</summary>
+                      <pre>{parsedData.raw_text}</pre>
+                    </details>
+                  )}
+
+                  <div className="form-actions">
+                    <button className="btn btn-ghost" onClick={handleRetry}>
+                      Заново
+                    </button>
+                    <button className="btn btn-primary" onClick={handleConfirm}>
+                      Подтвердить удар
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <MessageBlock message={message} />
+            </div>
+          )}
+
+          {!showAttackForm && <MessageBlock message={message} />}
+        </section>
+
+        <section className="logs-container" aria-label="Журнал боя">
+          <h3 className="logs-title">Журнал боя</h3>
+          {raid.recent_logs?.length ? (
+            raid.recent_logs.map((log, i) => (
+              <div key={i} className="log-item">
+                <span className="log-user">{log.username}</span>
+                <span className="log-action">
+                  {log.message ? (
+                    log.message
+                  ) : (
+                    <>
+                      нанёс <span className="log-dmg">-{log.damage}</span>
+                    </>
+                  )}
+                </span>
+              </div>
+            ))
+          ) : (
+            <p className="logs-empty">Пока тихо. Первый удар за тобой.</p>
+          )}
+        </section>
       </div>
     </div>
   );
