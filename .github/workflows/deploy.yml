@@ -19,8 +19,21 @@ jobs:
             cd app
             git pull origin main
 
-            # Не форсим pull базовых образов — Docker Hub часто отвечает 429.
-            # bot больше не в compose; собираем только нужные сервисы.
+            # SECRET_KEY обязателен для JWT; если в .env нет — создаём
+            if [ ! -f .env ]; then
+              echo "ERROR: .env отсутствует на сервере"
+              exit 1
+            fi
+            if ! grep -qE '^SECRET_KEY=.+' .env; then
+              echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
+              echo "Added SECRET_KEY to .env"
+            fi
+
+            # Убираем старый контейнер бота, если остался
+            docker compose stop bot 2>/dev/null || true
+            docker compose rm -f bot 2>/dev/null || true
+            docker rm -f $(docker ps -aq --filter name=bot) 2>/dev/null || true
+
             docker compose down
             docker compose build --pull=false backend frontend
             RESET_DB=1 docker compose up -d

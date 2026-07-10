@@ -22,7 +22,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_HOST: db
-      # Один раз после смены схемы: RESET_DB=1, затем убрать
+      SECRET_KEY: ${SECRET_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       RESET_DB: ${RESET_DB:-0}
     depends_on:
       db:
