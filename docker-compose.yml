@@ -24,6 +24,7 @@ services:
       POSTGRES_HOST: db
       SECRET_KEY: ${SECRET_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free}
       RESET_DB: ${RESET_DB:-0}
     depends_on:
       db:

@@ -8,8 +8,6 @@ from schemas import WorkoutData
 from config import (
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
-    OPENROUTER_HTTP_REFERER,
-    OPENROUTER_APP_TITLE,
 )
 
 # Настройка логирования
@@ -82,8 +80,6 @@ class UniversalParser(BaseWorkoutParser):
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
-            "HTTP-Referer": OPENROUTER_HTTP_REFERER,
-            "X-Title": OPENROUTER_APP_TITLE,
         }
 
         payload = {
@@ -94,18 +90,17 @@ class UniversalParser(BaseWorkoutParser):
                     "content": [
                         {
                             "type": "text",
-                            "text": prompt
+                            "text": prompt,
                         },
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        }
-                    ]
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            },
+                        },
+                    ],
                 }
             ],
-            "temperature": 0.1
         }
 
         raw_text = "Текст не распознан"
